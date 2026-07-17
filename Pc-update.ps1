@@ -1,8 +1,7 @@
-#Requires -RunAsAdministrator
 <#
     PRZEGLAD OKRESOWY KOMPUTERA - wersja z GUI
-    Uruchamiaj jako Administrator:
-        powershell -ExecutionPolicy Bypass -File .\przeglad-komputera.ps1
+    Uruchamiane jednym poleceniem:
+        irm https://raw.githubusercontent.com/Juliuszjk/sts-pc/refs/heads/main/Pc-update.ps1 | iex
 
     Pominiete celowo: 1, 2, 11, 15, 27, 28, 29, 30
     (11 - inna sprawa, robisz osobno; 15 - Office olewamy, wszedzie jest Libre)
@@ -14,8 +13,11 @@
       - TeamViewerQS - z Twojego linku, tylko jesli nie ma go lokalnie
 #>
 
-if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
-    Start-Process powershell -ArgumentList "-NoProfile -STA -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+$scriptUrl = "https://raw.githubusercontent.com/Juliuszjk/sts-pc/refs/heads/main/Pc-update.ps1"
+
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm $scriptUrl | iex`"" -Verb RunAs
     exit
 }
 
@@ -107,7 +109,6 @@ $form.Size = New-Object System.Drawing.Size(900,700)
 $form.StartPosition = "CenterScreen"
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
-# --- Panel gorny: dane wejsciowe ---
 $lblJednostka = New-Object System.Windows.Forms.Label
 $lblJednostka.Text = "Jednostka:"
 $lblJednostka.Location = New-Object System.Drawing.Point(10,15)
@@ -139,7 +140,6 @@ $btnStart.Height = 30
 $btnStart.BackColor = [System.Drawing.Color]::LightGreen
 $form.Controls.Add($btnStart)
 
-# --- Panel szybkiego otwierania aplikacji ---
 $lblSzybkie = New-Object System.Windows.Forms.Label
 $lblSzybkie.Text = "Szybkie otwieranie:"
 $lblSzybkie.Location = New-Object System.Drawing.Point(10,50)
@@ -175,7 +175,6 @@ $btnBD.Add_Click({
 })
 $form.Controls.Add($btnBD)
 
-# --- Etykieta aktualnego zadania ---
 $lblCurrent = New-Object System.Windows.Forms.Label
 $lblCurrent.Text = "Oczekiwanie na start..."
 $lblCurrent.Location = New-Object System.Drawing.Point(10,85)
@@ -184,7 +183,6 @@ $lblCurrent.ForeColor = [System.Drawing.Color]::Blue
 $lblCurrent.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($lblCurrent)
 
-# --- Pasek postepu ---
 $progressBar = New-Object System.Windows.Forms.ProgressBar
 $progressBar.Location = New-Object System.Drawing.Point(10,110)
 $progressBar.Width = 860
@@ -192,7 +190,6 @@ $progressBar.Height = 20
 $progressBar.Maximum = $items.Count
 $form.Controls.Add($progressBar)
 
-# --- Tabela statusow ---
 $grid = New-Object System.Windows.Forms.DataGridView
 $grid.Location = New-Object System.Drawing.Point(10,140)
 $grid.Size = New-Object System.Drawing.Size(860,480)
@@ -217,7 +214,6 @@ foreach ($it in $items) {
 }
 $form.Controls.Add($grid)
 
-# podwojne klikniecie w wiersz -> szybka akcja dla wybranych punktow
 $grid.Add_CellDoubleClick({
     param($s,$e)
     if ($e.RowIndex -lt 0) { return }
@@ -233,7 +229,6 @@ $grid.Add_CellDoubleClick({
     }
 })
 
-# --- Dolny pasek ---
 $lblStopka = New-Object System.Windows.Forms.Label
 $lblStopka.Text = "Gotowy do startu."
 $lblStopka.Location = New-Object System.Drawing.Point(10,630)
@@ -273,7 +268,6 @@ $workerScript = {
     $ErrorActionPreference = 'SilentlyContinue'
     $securePass = ConvertTo-SecureString $haslo -AsPlainText -Force
 
-    # --- 3. Dane komputera ---
     Set-Current "Punkt 3 - dane komputera..."
     $nazwaKomputera = $env:COMPUTERNAME
     $os = Get-CimInstance Win32_OperatingSystem
@@ -283,7 +277,6 @@ $workerScript = {
     $ograniczeni = Get-LocalUser | Where-Object { $_.Enabled -and ($adminNames -notcontains "$nazwaKomputera\$($_.Name)") }
     Set-Status 3 "OK" "Nazwa: $nazwaKomputera | $($os.Caption) | Jednostka: $jednostka | Konta ograniczone: $(($ograniczeni.Name) -join ', ')"
 
-    # --- 5. Smart App Control + Windows Defender ---
     Set-Current "Punkt 5 - Smart App Control + Windows Defender..."
     try {
         $sacPath = "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy"
@@ -299,7 +292,6 @@ $workerScript = {
         Set-Status 5 "OK" "SAC: $sacInfo | Windows Defender otwarty"
     } catch { Set-Status 5 "BRAK" $_.Exception.Message }
 
-    # --- 6. HP Support Assistant ---
     Set-Current "Punkt 6 - otwieranie HP Support Assistant..."
     $hpCandidates = @(
         "C:\Program Files (x86)\HP\HP Support Framework\HPSF.exe",
@@ -310,19 +302,16 @@ $workerScript = {
     if ($hpExe) { Start-Process $hpExe; Set-Status 6 "OK" "otwarto HP Support Assistant" }
     else { Set-Status 6 "BRAK" "nie znaleziono HP Support Assistant - sprawdz recznie" }
 
-    # --- 7. Rodzaj dysku ---
     Set-Current "Punkt 7 - rodzaj dysku..."
     $dyski = Get-PhysicalDisk | Select-Object DeviceId, MediaType
     Set-Status 7 "OK" (($dyski.MediaType | Sort-Object -Unique) -join "+")
 
-    # --- 8. Wolne miejsce ---
     Set-Current "Punkt 8 - wolne miejsce na dysku..."
     $vol = Get-Volume -DriveLetter C
     $procent = [math]::Round(($vol.SizeRemaining / $vol.Size) * 100, 1)
     $kat = if ($procent -gt 50) { "wiecej niz 50%" } elseif ($procent -ge 25) { "50%-25%" } elseif ($procent -ge 10) { "25%-10%" } else { "PONIZEJ 10% - INTERWENCJA" }
     Set-Status 8 $(if ($procent -lt 10) { "BRAK" } else { "OK" }) "$procent% ($kat)"
 
-    # --- 9 i 10. Konta admin / adminb ---
     foreach ($konto in @("admin","adminb")) {
         $numer = if ($konto -eq 'admin') { 9 } else { 10 }
         Set-Current "Punkt $numer - konto '$konto'..."
@@ -339,7 +328,6 @@ $workerScript = {
         }
     }
 
-    # --- 12 i 13. Pulpit zdalny ---
     Set-Current "Punkt 12/13 - pulpit zdalny..."
     try {
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
@@ -354,7 +342,6 @@ $workerScript = {
         Set-Status 13 "BRAK" $_.Exception.Message
     }
 
-    # --- 14. LibreOffice (tylko sprawdzenie/aktualizacja, bez instalacji) ---
     Set-Current "Punkt 14 - LibreOffice..."
     $loKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
                 "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
@@ -368,7 +355,6 @@ $workerScript = {
         Set-Status 14 "INFO" "nie znaleziono - pomijam (nie instalujemy)"
     }
 
-    # --- 16. Firefox / Chrome ---
     Set-Current "Punkt 16 - Firefox / Chrome..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $wynik16 = @()
@@ -382,7 +368,6 @@ $workerScript = {
         Set-Status 16 "OK" ($wynik16 -join " | ")
     } else { Set-Status 16 "BRAK" "winget niedostepny" }
 
-    # --- 17. Adobe Reader ---
     Set-Current "Punkt 17 - Adobe Reader..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $ar = winget list --id Adobe.Acrobat.Reader.64-bit -e 2>$null | Select-String "Adobe.Acrobat.Reader"
@@ -392,7 +377,6 @@ $workerScript = {
         } else { Set-Status 17 "INFO" "niezainstalowany - pomijam" }
     }
 
-    # --- 18. Adobe AIR (Harman) - tylko pobranie ---
     Set-Current "Punkt 18 - pobieranie Adobe AIR..."
     try {
         $dest = "$env:USERPROFILE\Desktop\AdobeAIR_Installer.exe"
@@ -400,7 +384,6 @@ $workerScript = {
         Set-Status 18 "AKCJA" "pobrano na pulpit: $dest - zainstaluj recznie"
     } catch { Set-Status 18 "BRAK" $_.Exception.Message }
 
-    # --- 19. 7-Zip ---
     Set-Current "Punkt 19 - 7-Zip..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $sevenzip = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
@@ -413,7 +396,6 @@ $workerScript = {
         }
     }
 
-    # --- 20 i 21. Java ---
     Set-Current "Punkt 20/21 - Java..."
     $javaVer = & java -version 2>&1
     if ($javaVer -match "version") {
@@ -424,7 +406,6 @@ $workerScript = {
     if ($javaPathFile) { Set-Status 21 "OK" "znaleziono: $($javaPathFile.FullName)" }
     else { Set-Status 21 "BRAK" "nie znaleziono - utworz recznie" }
 
-    # --- 22-24. Bitdefender - tylko otwarcie ---
     Set-Current "Punkt 22-24 - otwieranie Bitdefendera..."
     $bdCandidates = @(
         "C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe",
@@ -434,7 +415,6 @@ $workerScript = {
     if ($bdExe) { Start-Process $bdExe; Set-Status 22 "OK" "otwarto Bitdefendera - kliknij aktualizuj recznie" }
     else { Set-Status 22 "BRAK" "nie znaleziono Bitdefendera - sprawdz recznie" }
 
-    # --- 25. TeamViewer QS ---
     Set-Current "Punkt 25 - TeamViewer QS..."
     $publicDesktop = "$env:PUBLIC\Desktop"
     $userDesktop = "$env:USERPROFILE\Desktop"
@@ -458,7 +438,6 @@ $workerScript = {
         }
     }
 
-    # --- 26. BitLocker ---
     Set-Current "Punkt 26 - BitLocker..."
     $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
     if ($bl) {
@@ -466,7 +445,6 @@ $workerScript = {
         else { Set-Status 26 "BRAK" "ochrona wylaczona lub nieskonfigurowana" }
     } else { Set-Status 26 "BRAK" "BitLocker niedostepny" }
 
-    # --- 4. Windows Update (na koncu, najdluzsze) ---
     Set-Current "Punkt 4 - aktualizacja Windows (moze potrwac dlugo)..."
     try {
         if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
@@ -487,9 +465,6 @@ $workerScript = {
     $sync.Done = $true
 }
 
-# ============================================================
-# URUCHOMIENIE W TLE PO KLIKNIECIU "ROZPOCZNIJ"
-# ============================================================
 $btnStart.Add_Click({
     if ([string]::IsNullOrWhiteSpace($txtJednostka.Text)) {
         [System.Windows.Forms.MessageBox]::Show("Podaj jednostke.","Brak danych"); return
@@ -512,14 +487,10 @@ $btnStart.Add_Click({
     $ps.AddScript($workerScript).AddArgument($sync).AddArgument($txtJednostka.Text).AddArgument($txtHaslo.Text) | Out-Null
     $ps.BeginInvoke() | Out-Null
 
-    # zapisz referencje zeby garbage collector nie posprzatal w trakcie
     $script:activeRunspace = $runspace
     $script:activePs = $ps
 })
 
-# ============================================================
-# TIMER ODSWIEZAJACY GUI
-# ============================================================
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 400
 $timer.Add_Tick({
