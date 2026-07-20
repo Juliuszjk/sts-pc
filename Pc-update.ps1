@@ -1,5 +1,5 @@
 <#
-    PC PERIODIC MAINTENANCE - GUI Version (Dynamic Search Edition)
+    PC PERIODIC MAINTENANCE - GUI Version (Interactive Edition)
     Execution: irm https://raw.githubusercontent.com/Juliuszjk/sts-pc/refs/heads/main/Pc-update.ps1 | iex
 #>
 
@@ -80,7 +80,7 @@ function Open-Bitdefender {
 }
 
 $mainForm = New-Object System.Windows.Forms.Form
-$mainForm.Text = "PC Periodic Maintenance - Dynamic Edition"
+$mainForm.Text = "PC Periodic Maintenance - Interactive Edition"
 $mainForm.Size = New-Object System.Drawing.Size(900,700)
 $mainForm.StartPosition = "CenterScreen"
 $mainForm.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -295,29 +295,29 @@ $workerScriptBlock = {
     $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
     if ($loApp) {
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --id TheDocumentFoundation.LibreOffice -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --id TheDocumentFoundation.LibreOffice -e --accept-source-agreements --accept-package-agreements | Out-Null
         }
         Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
     } else { Update-State 14 "SKIP" "Not found - skipping" }
 
-    Update-Current "Checking Browsers (Dynamic Name Match)..."
+    Update-Current "Checking Browsers (Interactive)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $browserResults = @()
         foreach ($app in @(@{n="Firefox"; q="Mozilla Firefox"}, @{n="Chrome"; q="Google Chrome"})) {
             $isInstalled = winget list --name $app.q -e 2>$null | Select-String $app.n
             if ($isInstalled) {
-                winget upgrade --name $app.q --silent --accept-source-agreements --accept-package-agreements | Out-Null
+                winget upgrade --name $app.q --accept-source-agreements --accept-package-agreements | Out-Null
                 $browserResults += "$($app.n): Upgrade Triggered"
             } else { $browserResults += "$($app.n): Not Installed" }
         }
         Update-State 16 "OK" ($browserResults -join " | ")
     } else { Update-State 16 "ERROR" "Winget unavailable" }
 
-    Update-Current "Checking Adobe Acrobat (Dynamic Name Match)..."
+    Update-Current "Checking Adobe Acrobat (Interactive)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $arApp = winget list --name "Acrobat Reader" 2>$null | Select-String "Acrobat Reader"
         if ($arApp) {
-            winget upgrade --name "Acrobat Reader" --silent --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --name "Acrobat Reader" --accept-source-agreements --accept-package-agreements | Out-Null
             Update-State 17 "OK" "Upgrade Triggered"
         } else { Update-State 17 "SKIP" "Not installed - skipping" }
     }
@@ -329,14 +329,14 @@ $workerScriptBlock = {
         Update-State 18 "ACTION" "Downloaded to desktop: $airDest"
     } catch { Update-State 18 "ERROR" $_.Exception.Message }
 
-    Update-Current "Checking 7-Zip..."
+    Update-Current "Checking 7-Zip (Interactive)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $zipApp = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
         if ($zipApp) {
-            winget upgrade --id 7zip.7zip -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements | Out-Null
             Update-State 19 "OK" "Found, Upgrade Triggered"
         } else {
-            winget install --id 7zip.7zip -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+            winget install --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements | Out-Null
             Update-State 19 "ACTION" "Installed"
         }
     }
