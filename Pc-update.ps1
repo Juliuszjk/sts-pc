@@ -17,9 +17,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 $items = @(
     @{ Id=3;  Desc="PC Data (Name, OS, Non-Admins)" }
-    @{ Id=4;  Desc="Windows Update" }
-    @{ Id=5;  Desc="Disable Smart App Control + Defender" }
-    @{ Id=6;  Desc="HP Support Assistant" }
+    @{ Id=5;  Desc="Disable Smart App Control" }
     @{ Id=7;  Desc="Drive Type" }
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
@@ -28,8 +26,6 @@ $items = @(
     @{ Id=17; Desc="Adobe Reader / Acrobat" }
     @{ Id=18; Desc="Download Adobe AIR (Harman)" }
     @{ Id=19; Desc="7-Zip" }
-    @{ Id=20; Desc="Java Version (Dynamic Check)" }
-    @{ Id=21; Desc="JAVA_PATH.txt File" }
     @{ Id=22; Desc="Bitdefender Open" }
     @{ Id=25; Desc="TeamViewer QS on Public Desktop" }
     @{ Id=26; Desc="BitLocker Status" }
@@ -44,40 +40,6 @@ $syncHash = [hashtable]::Synchronized(@{
     Finished = 0
 })
 foreach ($item in $items) { $syncHash.Status[$item.Id] = "PENDING"; $syncHash.Detail[$item.Id] = "" }
-
-function Open-WindowsDefender { Start-Process "windowsdefender:" }
-
-function Find-StartMenuShortcut([string]$pattern) {
-    $paths = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:AppData\Microsoft\Windows\Start Menu\Programs")
-    foreach ($path in $paths) {
-        $file = Get-ChildItem -Path $path -Filter $pattern -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($file) { return $file.FullName }
-    }
-    return $null
-}
-
-function Open-HPSupportAssistant {
-    $candidates = @("C:\Program Files (x86)\HP\HP Support Framework\HPSF.exe", "C:\Program Files\HP\HP Support Framework\HPSF.exe", "C:\Program Files (x86)\HP\HP Support Solutions Framework\HPSF.exe")
-    $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $exe) { $exe = Find-StartMenuShortcut "*HP Support Assistant*.lnk" }
-    if ($exe) { Start-Process $exe; return $true }
-    else { Start-Process "hpsupportassistant:" -ErrorAction SilentlyContinue; return $false }
-}
-
-function Open-Bitdefender {
-    $process = Get-Process | Where-Object { $_.ProcessName -match "bdagent|epconsole|seccenter" } | Select-Object -First 1
-    if ($process -and $process.Path) { Start-Process $process.Path; return $true }
-
-    $candidates = @(
-        "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe",
-        "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe",
-        "C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe"
-    )
-    $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $exe) { $exe = Find-StartMenuShortcut "*Bitdefender*.lnk" }
-    if ($exe) { Start-Process $exe; return $true }
-    else { return $false }
-}
 
 $mainForm = New-Object System.Windows.Forms.Form
 $mainForm.Text = "PC Periodic Maintenance - Interactive Edition"
@@ -110,28 +72,12 @@ $lblQuick.Location = New-Object System.Drawing.Point(10,50)
 $lblQuick.AutoSize = $true
 $mainForm.Controls.Add($lblQuick)
 
-$btnDefender = New-Object System.Windows.Forms.Button
-$btnDefender.Text = "Windows Defender"
-$btnDefender.Location = New-Object System.Drawing.Point(140,45)
-$btnDefender.Width = 160
-$btnDefender.Add_Click({ Open-WindowsDefender })
-$mainForm.Controls.Add($btnDefender)
-
-$btnHP = New-Object System.Windows.Forms.Button
-$btnHP.Text = "HP Support Assistant"
-$btnHP.Location = New-Object System.Drawing.Point(310,45)
-$btnHP.Width = 180
-$btnHP.Add_Click({
-    if (-not (Open-HPSupportAssistant)) { [System.Windows.Forms.MessageBox]::Show("HP Support Assistant not found.","Info") }
-})
-$mainForm.Controls.Add($btnHP)
-
 $btnBD = New-Object System.Windows.Forms.Button
-$btnBD.Text = "Bitdefender"
-$btnBD.Location = New-Object System.Drawing.Point(500,45)
-$btnBD.Width = 160
+$btnBD.Text = "Bitdefender Endpoint Security Tools"
+$btnBD.Location = New-Object System.Drawing.Point(140,45)
+$btnBD.Width = 250
 $btnBD.Add_Click({
-    if (-not (Open-Bitdefender)) { [System.Windows.Forms.MessageBox]::Show("Bitdefender not found.","Info") }
+    Start-Process "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe" -ErrorAction SilentlyContinue
 })
 $mainForm.Controls.Add($btnBD)
 
@@ -179,9 +125,7 @@ $dataGrid.Add_CellDoubleClick({
     if ($eventArgs.RowIndex -lt 0) { return }
     $id = [int]$dataGrid.Rows[$eventArgs.RowIndex].Cells["Id"].Value
     switch ($id) {
-        5  { Open-WindowsDefender }
-        6  { if (-not (Open-HPSupportAssistant)) { [System.Windows.Forms.MessageBox]::Show("HP Support Assistant not found.","Info") } }
-        22 { if (-not (Open-Bitdefender)) { [System.Windows.Forms.MessageBox]::Show("Bitdefender not found.","Info") } }
+        22 { Start-Process "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe" -ErrorAction SilentlyContinue }
         default {
             $detail = $dataGrid.Rows[$eventArgs.RowIndex].Cells["Detail"].Value
             [System.Windows.Forms.MessageBox]::Show($detail, "Item $id Details")
@@ -250,15 +194,8 @@ $workerScriptBlock = {
                 $sacState = "Disabled (requires reboot)"
             } else { $sacState = "Already Disabled" }
         }
-        Start-Process "windowsdefender:"
-        Update-State 5 "OK" "SAC: $sacState | Defender UI Opened"
+        Update-State 5 "OK" "SAC: $sacState"
     } catch { Update-State 5 "ERROR" $_.Exception.Message }
-
-    Update-Current "Opening HP Support Assistant..."
-    $hpExecutables = @("C:\Program Files (x86)\HP\HP Support Framework\HPSF.exe", "C:\Program Files\HP\HP Support Framework\HPSF.exe", "C:\Program Files (x86)\HP\HP Support Solutions Framework\HPSF.exe")
-    $hpExe = $hpExecutables | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($hpExe) { Start-Process $hpExe; Update-State 6 "OK" "HP Support Assistant Opened" }
-    else { Update-State 6 "WARN" "HP Support Assistant not found" }
 
     Update-Current "Checking Drive Type..."
     $physicalDrives = Get-PhysicalDisk | Select-Object DeviceId, MediaType
@@ -303,10 +240,10 @@ $workerScriptBlock = {
     Update-Current "Checking Browsers (Interactive)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $browserResults = @()
-        foreach ($app in @(@{n="Firefox"; q="Mozilla Firefox"}, @{n="Chrome"; q="Google Chrome"})) {
-            $isInstalled = winget list --name $app.q -e 2>$null | Select-String $app.n
+        foreach ($app in @(@{n="Firefox"; id="Mozilla.Firefox"}, @{n="Chrome"; id="Google.Chrome"})) {
+            $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.n
             if ($isInstalled) {
-                winget upgrade --name $app.q -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
+                winget upgrade --id $app.id -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
                 $browserResults += "$($app.n): Upgrade Triggered"
             } else { $browserResults += "$($app.n): Not Installed" }
         }
@@ -315,9 +252,9 @@ $workerScriptBlock = {
 
     Update-Current "Checking Adobe Acrobat (Interactive)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $arApp = winget list --name "Acrobat Reader" 2>$null | Select-String "Acrobat Reader"
+        $arApp = winget list --id "Adobe.Acrobat.Reader.64-bit" -e 2>$null | Select-String "Adobe"
         if ($arApp) {
-            winget upgrade --name "Acrobat Reader" --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
+            winget upgrade --id "Adobe.Acrobat.Reader.64-bit" -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
             Update-State 17 "OK" "Upgrade Triggered"
         } else { Update-State 17 "SKIP" "Not installed - skipping" }
     }
@@ -341,66 +278,13 @@ $workerScriptBlock = {
         }
     }
 
-    Update-Current "Checking Java Registry & Environment..."
-    $javaMsg = ""
-    $javaStatus = "WARN"
-    $msJavaUninstalled = $false
-
-    $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
-    $installedJava = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Java" -or $_.DisplayName -match "OpenJDK" }
-    
-    if ($installedJava) {
-        foreach ($j in $installedJava) {
-            if ($j.Publisher -match "Microsoft") {
-                if ($j.UninstallString) {
-                    $uStr = $j.UninstallString -replace '"', ''
-                    if ($uStr -match "msiexec") {
-                        $args = $uStr -replace "msiexec.exe", "" -replace "/I", "/X"
-                        $args += " /quiet /norestart"
-                        Start-Process "msiexec.exe" -ArgumentList $args -Wait -NoNewWindow
-                        $msJavaUninstalled = $true
-                    }
-                }
-            } else {
-                $javaStatus = "OK"
-                $javaMsg += "$($j.DisplayName) "
-            }
-        }
-    }
-    
-    $javaOutput = & java -version 2>&1
-    if ($javaOutput -match "version") {
-        $javaStatus = "OK"
-        if (-not ($javaMsg -match "Java")) { $javaMsg += (($javaOutput | Select-Object -First 1) -join " ") }
-    }
-
-    if ($msJavaUninstalled) { $javaMsg = "[MS Java Uninstalled] " + $javaMsg }
-    if ([string]::IsNullOrWhiteSpace($javaMsg)) { $javaMsg = "Java not found dynamically" }
-    
-    Update-State 20 $javaStatus $javaMsg
-
-    $javaTxt = Get-ChildItem -Path "C:\","$env:PUBLIC\Desktop","$env:USERPROFILE\Desktop" -Filter "JAVA_PATH.txt" -ErrorAction SilentlyContinue
-    if ($javaTxt) { Update-State 21 "OK" "Found: $($javaTxt.FullName)" }
-    else { Update-State 21 "WARN" "Not found - create manually" }
-
-    Update-Current "Opening Bitdefender (Process Match)..."
-    $bdProcess = Get-Process | Where-Object { $_.ProcessName -match "bdagent|epconsole|seccenter" } | Select-Object -First 1
-    if ($bdProcess -and $bdProcess.Path) { 
-        Start-Process $bdProcess.Path
-        Update-State 22 "OK" "Bitdefender Opened (Process Match)" 
-    } else {
-        $bdExecutables = @(
-            "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe",
-            "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe",
-            "C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe"
-        )
-        $bdExe = $bdExecutables | Where-Object { Test-Path $_ } | Select-Object -First 1
-        if ($bdExe) { 
-            Start-Process $bdExe
-            Update-State 22 "OK" "Bitdefender Opened (Path Match)" 
-        } else { 
-            Update-State 22 "WARN" "Bitdefender not found dynamically" 
-        }
+    Update-Current "Opening Bitdefender..."
+    $bdExe = "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe"
+    if (Test-Path $bdExe) { 
+        Start-Process $bdExe
+        Update-State 22 "OK" "Bitdefender Opened" 
+    } else { 
+        Update-State 22 "WARN" "Bitdefender not found at default path" 
     }
 
     Update-Current "Checking TeamViewer QS..."
@@ -430,22 +314,6 @@ $workerScriptBlock = {
         if ($bitlocker.ProtectionStatus -eq 'On') { Update-State 26 "OK" "Protection ON: $($bitlocker.VolumeStatus)" }
         else { Update-State 26 "WARN" "Protection OFF or Unconfigured" }
     } else { Update-State 26 "WARN" "BitLocker unavailable" }
-
-    Update-Current "Windows Update (This may take a while)..."
-    try {
-        if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
-            Install-PackageProvider -Name NuGet -Force | Out-Null
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-            Install-Module -Name PSWindowsUpdate -Force -Scope AllUsers
-        }
-        Import-Module PSWindowsUpdate
-        try {
-            $svcMgr = New-Object -ComObject Microsoft.Update.ServiceManager
-            $svcMgr.AddService2("7971f918-a847-4430-9279-4a52d1efe18d",7,"") | Out-Null
-        } catch {}
-        Get-WindowsUpdate -MicrosoftUpdate -AcceptAll -Install -IgnoreReboot | Out-Null
-        Update-State 4 "OK" "Updates Installed - check for pending reboots"
-    } catch { Update-State 4 "ERROR" $_.Exception.Message }
 
     Update-Current "Maintenance Complete."
     $sync.IsDone = $true
