@@ -21,14 +21,14 @@ $items = @(
     @{ Id=7;  Desc="Drive Type" }
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
-    @{ Id=14; Desc="LibreOffice" }
-    @{ Id=16; Desc="Firefox / Chrome" }
-    @{ Id=17; Desc="Adobe Reader / Acrobat" }
     @{ Id=18; Desc="Download Adobe AIR (Harman)" }
     @{ Id=19; Desc="7-Zip" }
     @{ Id=22; Desc="Bitdefender Open" }
     @{ Id=25; Desc="TeamViewer QS on Public Desktop" }
     @{ Id=26; Desc="BitLocker Status" }
+    @{ Id=14; Desc="LibreOffice" }
+    @{ Id=16; Desc="Firefox / Chrome" }
+    @{ Id=17; Desc="Adobe Reader / Acrobat" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -227,38 +227,6 @@ $workerScriptBlock = {
         Update-State 12 "OK" "RDP Enabled | NLA Disabled (GPO Enforced) | Everyone Allowed"
     } catch { Update-State 12 "ERROR" $_.Exception.Message }
 
-    Update-Current "Checking LibreOffice..."
-    $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
-    $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
-    if ($loApp) {
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --id TheDocumentFoundation.LibreOffice -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
-        }
-        Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
-    } else { Update-State 14 "SKIP" "Not found - skipping" }
-
-    Update-Current "Checking Browsers (Interactive)..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $browserResults = @()
-        foreach ($app in @(@{n="Firefox"; id="Mozilla.Firefox"}, @{n="Chrome"; id="Google.Chrome"})) {
-            $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.n
-            if ($isInstalled) {
-                winget upgrade --id $app.id -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
-                $browserResults += "$($app.n): Upgrade Triggered"
-            } else { $browserResults += "$($app.n): Not Installed" }
-        }
-        Update-State 16 "OK" ($browserResults -join " | ")
-    } else { Update-State 16 "ERROR" "Winget unavailable" }
-
-    Update-Current "Checking Adobe Acrobat (Interactive)..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $arApp = winget list --id "Adobe.Acrobat.Reader.64-bit" -e 2>$null | Select-String "Adobe"
-        if ($arApp) {
-            winget upgrade --id "Adobe.Acrobat.Reader.64-bit" -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
-            Update-State 17 "OK" "Upgrade Triggered"
-        } else { Update-State 17 "SKIP" "Not installed - skipping" }
-    }
-
     Update-Current "Downloading Adobe AIR..."
     try {
         $airDest = "$env:USERPROFILE\Desktop\AdobeAIR_Installer.exe"
@@ -314,6 +282,38 @@ $workerScriptBlock = {
         if ($bitlocker.ProtectionStatus -eq 'On') { Update-State 26 "OK" "Protection ON: $($bitlocker.VolumeStatus)" }
         else { Update-State 26 "WARN" "Protection OFF or Unconfigured" }
     } else { Update-State 26 "WARN" "BitLocker unavailable" }
+
+    Update-Current "Checking LibreOffice..."
+    $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
+    $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
+    if ($loApp) {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget upgrade --id TheDocumentFoundation.LibreOffice -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
+        }
+        Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
+    } else { Update-State 14 "SKIP" "Not found - skipping" }
+
+    Update-Current "Checking Browsers (Interactive)..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $browserResults = @()
+        foreach ($app in @(@{n="Firefox"; id="Mozilla.Firefox"}, @{n="Chrome"; id="Google.Chrome"})) {
+            $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.n
+            if ($isInstalled) {
+                winget upgrade --id $app.id -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
+                $browserResults += "$($app.n): Upgrade Triggered"
+            } else { $browserResults += "$($app.n): Not Installed" }
+        }
+        Update-State 16 "OK" ($browserResults -join " | ")
+    } else { Update-State 16 "ERROR" "Winget unavailable" }
+
+    Update-Current "Checking Adobe Acrobat (Interactive)..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $arApp = winget list --id "Adobe.Acrobat.Reader.64-bit" -e 2>$null | Select-String "Adobe"
+        if ($arApp) {
+            winget upgrade --id "Adobe.Acrobat.Reader.64-bit" -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
+            Update-State 17 "OK" "Upgrade Triggered"
+        } else { Update-State 17 "SKIP" "Not installed - skipping" }
+    }
 
     Update-Current "Maintenance Complete."
     $sync.IsDone = $true
