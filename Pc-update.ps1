@@ -1,5 +1,5 @@
 <#
-    PC PERIODIC MAINTENANCE - GUI Version (Hard Execution)
+    PC PERIODIC MAINTENANCE - GUI Version (Dynamic Search Edition)
     Execution: irm https://raw.githubusercontent.com/Juliuszjk/sts-pc/refs/heads/main/Pc-update.ps1 | iex
 #>
 
@@ -25,10 +25,10 @@ $items = @(
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=14; Desc="LibreOffice" }
     @{ Id=16; Desc="Firefox / Chrome" }
-    @{ Id=17; Desc="Adobe Reader" }
+    @{ Id=17; Desc="Adobe Reader / Acrobat" }
     @{ Id=18; Desc="Download Adobe AIR (Harman)" }
     @{ Id=19; Desc="7-Zip" }
-    @{ Id=20; Desc="Java Version" }
+    @{ Id=20; Desc="Java Version (Dynamic Check)" }
     @{ Id=21; Desc="JAVA_PATH.txt File" }
     @{ Id=22; Desc="Bitdefender Open" }
     @{ Id=25; Desc="TeamViewer QS on Public Desktop" }
@@ -65,7 +65,14 @@ function Open-HPSupportAssistant {
 }
 
 function Open-Bitdefender {
-    $candidates = @("C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe", "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe")
+    $process = Get-Process | Where-Object { $_.ProcessName -match "bdagent|epconsole|seccenter" } | Select-Object -First 1
+    if ($process -and $process.Path) { Start-Process $process.Path; return $true }
+
+    $candidates = @(
+        "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe",
+        "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe",
+        "C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe"
+    )
     $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
     if (-not $exe) { $exe = Find-StartMenuShortcut "*Bitdefender*.lnk" }
     if ($exe) { Start-Process $exe; return $true }
@@ -73,7 +80,7 @@ function Open-Bitdefender {
 }
 
 $mainForm = New-Object System.Windows.Forms.Form
-$mainForm.Text = "PC Periodic Maintenance"
+$mainForm.Text = "PC Periodic Maintenance - Dynamic Edition"
 $mainForm.Size = New-Object System.Drawing.Size(900,700)
 $mainForm.StartPosition = "CenterScreen"
 $mainForm.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -293,24 +300,24 @@ $workerScriptBlock = {
         Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
     } else { Update-State 14 "SKIP" "Not found - skipping" }
 
-    Update-Current "Checking Browsers..."
+    Update-Current "Checking Browsers (Dynamic Name Match)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $browserResults = @()
-        foreach ($app in @(@{id="Mozilla.Firefox";n="Firefox"}, @{id="Google.Chrome";n="Chrome"})) {
-            $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.id
+        foreach ($app in @(@{n="Firefox"; q="Mozilla Firefox"}, @{n="Chrome"; q="Google Chrome"})) {
+            $isInstalled = winget list --name $app.q -e 2>$null | Select-String $app.n
             if ($isInstalled) {
-                winget upgrade --id $app.id -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+                winget upgrade --name $app.q --silent --accept-source-agreements --accept-package-agreements | Out-Null
                 $browserResults += "$($app.n): Upgrade Triggered"
             } else { $browserResults += "$($app.n): Not Installed" }
         }
         Update-State 16 "OK" ($browserResults -join " | ")
     } else { Update-State 16 "ERROR" "Winget unavailable" }
 
-    Update-Current "Checking Adobe Reader..."
+    Update-Current "Checking Adobe Acrobat (Dynamic Name Match)..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $arApp = winget list --id Adobe.Acrobat.Reader.64-bit -e 2>$null | Select-String "Adobe.Acrobat.Reader"
+        $arApp = winget list --name "Acrobat Reader" 2>$null | Select-String "Acrobat Reader"
         if ($arApp) {
-            winget upgrade --id Adobe.Acrobat.Reader.64-bit -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --name "Acrobat Reader" --silent --accept-source-agreements --accept-package-agreements | Out-Null
             Update-State 17 "OK" "Upgrade Triggered"
         } else { Update-State 17 "SKIP" "Not installed - skipping" }
     }
@@ -334,21 +341,67 @@ $workerScriptBlock = {
         }
     }
 
-    Update-Current "Checking Java..."
+    Update-Current "Checking Java Registry & Environment..."
+    $javaMsg = ""
+    $javaStatus = "WARN"
+    $msJavaUninstalled = $false
+
+    $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
+    $installedJava = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match "Java" -or $_.DisplayName -match "OpenJDK" }
+    
+    if ($installedJava) {
+        foreach ($j in $installedJava) {
+            if ($j.Publisher -match "Microsoft") {
+                if ($j.UninstallString) {
+                    $uStr = $j.UninstallString -replace '"', ''
+                    if ($uStr -match "msiexec") {
+                        $args = $uStr -replace "msiexec.exe", "" -replace "/I", "/X"
+                        $args += " /quiet /norestart"
+                        Start-Process "msiexec.exe" -ArgumentList $args -Wait -NoNewWindow
+                        $msJavaUninstalled = $true
+                    }
+                }
+            } else {
+                $javaStatus = "OK"
+                $javaMsg += "$($j.DisplayName) "
+            }
+        }
+    }
+    
     $javaOutput = & java -version 2>&1
     if ($javaOutput -match "version") {
-        Update-State 20 "OK" (($javaOutput | Select-Object -First 1) -join " ")
-    } else { Update-State 20 "WARN" "Java not found in PATH" }
+        $javaStatus = "OK"
+        if (-not ($javaMsg -match "Java")) { $javaMsg += (($javaOutput | Select-Object -First 1) -join " ") }
+    }
+
+    if ($msJavaUninstalled) { $javaMsg = "[MS Java Uninstalled] " + $javaMsg }
+    if ([string]::IsNullOrWhiteSpace($javaMsg)) { $javaMsg = "Java not found dynamically" }
+    
+    Update-State 20 $javaStatus $javaMsg
 
     $javaTxt = Get-ChildItem -Path "C:\","$env:PUBLIC\Desktop","$env:USERPROFILE\Desktop" -Filter "JAVA_PATH.txt" -ErrorAction SilentlyContinue
     if ($javaTxt) { Update-State 21 "OK" "Found: $($javaTxt.FullName)" }
     else { Update-State 21 "WARN" "Not found - create manually" }
 
-    Update-Current "Opening Bitdefender..."
-    $bdExecutables = @("C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe", "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe")
-    $bdExe = $bdExecutables | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($bdExe) { Start-Process $bdExe; Update-State 22 "OK" "Bitdefender Opened" }
-    else { Update-State 22 "WARN" "Bitdefender not found" }
+    Update-Current "Opening Bitdefender (Process Match)..."
+    $bdProcess = Get-Process | Where-Object { $_.ProcessName -match "bdagent|epconsole|seccenter" } | Select-Object -First 1
+    if ($bdProcess -and $bdProcess.Path) { 
+        Start-Process $bdProcess.Path
+        Update-State 22 "OK" "Bitdefender Opened (Process Match)" 
+    } else {
+        $bdExecutables = @(
+            "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe",
+            "C:\Program Files\Bitdefender Endpoint Security Tools\bdagent.exe",
+            "C:\Program Files\Bitdefender\Bitdefender Security Agent\bdagent.exe"
+        )
+        $bdExe = $bdExecutables | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($bdExe) { 
+            Start-Process $bdExe
+            Update-State 22 "OK" "Bitdefender Opened (Path Match)" 
+        } else { 
+            Update-State 22 "WARN" "Bitdefender not found dynamically" 
+        }
+    }
 
     Update-Current "Checking TeamViewer QS..."
     $pubDesktop = "$env:PUBLIC\Desktop"
