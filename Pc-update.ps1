@@ -21,14 +21,15 @@ $items = @(
     @{ Id=7;  Desc="Drive Type" }
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
-    @{ Id=18; Desc="Download Adobe AIR (Harman)" }
-    @{ Id=19; Desc="7-Zip" }
     @{ Id=22; Desc="Bitdefender Open" }
-    @{ Id=25; Desc="TeamViewer QS on Public Desktop" }
+    @{ Id=25; Desc="TeamViewer QS (Check)" }
     @{ Id=26; Desc="BitLocker Status" }
-    @{ Id=14; Desc="LibreOffice" }
-    @{ Id=16; Desc="Firefox / Chrome" }
-    @{ Id=17; Desc="Adobe Reader / Acrobat" }
+    @{ Id=20; Desc="Java (Check & Set Env)" }
+    @{ Id=14; Desc="LibreOffice (Check)" }
+    @{ Id=16; Desc="Firefox / Chrome (Check)" }
+    @{ Id=17; Desc="Adobe Reader (Check)" }
+    @{ Id=18; Desc="Adobe AIR (Check)" }
+    @{ Id=19; Desc="7-Zip (Check)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -126,6 +127,37 @@ $dataGrid.Add_CellDoubleClick({
     $id = [int]$dataGrid.Rows[$eventArgs.RowIndex].Cells["Id"].Value
     switch ($id) {
         22 { Start-Process "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe" -ErrorAction SilentlyContinue }
+        20 {
+            $javaBase = "C:\Program Files\Java"
+            if (Test-Path $javaBase) {
+                $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
+                if ($latestJava) {
+                    $jPath = $latestJava.FullName
+                    $bPath = "$jPath\bin"
+                    
+                    [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
+                    $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                    
+                    if ($mPath -notmatch [regex]::Escape($bPath)) {
+                        [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
+                    }
+                    
+                    $syncHash.Status[20] = "OK"
+                    $syncHash.Detail[20] = "Configured: $jPath"
+                    
+                    $gridRow = $dataGrid.Rows[$eventArgs.RowIndex]
+                    $gridRow.Cells["Status"].Value = "OK"
+                    $gridRow.Cells["Detail"].Value = "Configured: $jPath"
+                    $gridRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::LightGreen
+                    
+                    [System.Windows.Forms.MessageBox]::Show("Java set to $jPath and added to PATH.", "Success")
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show("No Java versions found in $javaBase.", "Error")
+                }
+            } else {
+                [System.Windows.Forms.MessageBox]::Show("Folder $javaBase does not exist.", "Error")
+            }
+        }
         default {
             $detail = $dataGrid.Rows[$eventArgs.RowIndex].Cells["Detail"].Value
             [System.Windows.Forms.MessageBox]::Show($detail, "Item $id Details")
@@ -227,25 +259,6 @@ $workerScriptBlock = {
         Update-State 12 "OK" "RDP Enabled | NLA Disabled (GPO Enforced) | Everyone Allowed"
     } catch { Update-State 12 "ERROR" $_.Exception.Message }
 
-    Update-Current "Downloading Adobe AIR..."
-    try {
-        $airDest = "$env:USERPROFILE\Desktop\AdobeAIR_Installer.exe"
-        Invoke-WebRequest -Uri "https://airsdk.harman.com/assets/downloads/51.3.3.1/AdobeAIR.exe" -OutFile $airDest -UseBasicParsing
-        Update-State 18 "ACTION" "Downloaded to desktop: $airDest"
-    } catch { Update-State 18 "ERROR" $_.Exception.Message }
-
-    Update-Current "Checking 7-Zip (Interactive)..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $zipApp = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
-        if ($zipApp) {
-            winget upgrade --id 7zip.7zip -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
-            Update-State 19 "OK" "Found, Upgrade Triggered"
-        } else {
-            winget install --id 7zip.7zip -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
-            Update-State 19 "ACTION" "Installed"
-        }
-    }
-
     Update-Current "Opening Bitdefender..."
     $bdExe = "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe"
     if (Test-Path $bdExe) { 
@@ -257,23 +270,11 @@ $workerScriptBlock = {
 
     Update-Current "Checking TeamViewer QS..."
     $pubDesktop = "$env:PUBLIC\Desktop"
-    $usrDesktop = "$env:USERPROFILE\Desktop"
     $tvPublic = Get-ChildItem $pubDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue
     if ($tvPublic) {
-        if ($tvPublic.Count -gt 1) { $tvPublic | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -Force }
         Update-State 25 "OK" "Found on Public Desktop"
     } else {
-        $tvUser = Get-ChildItem $usrDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($tvUser) {
-            Move-Item $tvUser.FullName -Destination $pubDesktop -Force
-            Update-State 25 "ACTION" "Moved from User Desktop to Public"
-        } else {
-            try {
-                $tvDest = Join-Path $pubDesktop "TeamViewerQS.exe"
-                Invoke-WebRequest -Uri "https://get.teamviewer.com/6kqdjfd" -OutFile $tvDest -UseBasicParsing
-                Update-State 25 "ACTION" "Downloaded to Public Desktop"
-            } catch { Update-State 25 "ERROR" $_.Exception.Message }
-        }
+        Update-State 25 "WARN" "Not found on Public Desktop"
     }
 
     Update-Current "Checking BitLocker..."
@@ -283,36 +284,82 @@ $workerScriptBlock = {
         else { Update-State 26 "WARN" "Protection OFF or Unconfigured" }
     } else { Update-State 26 "WARN" "BitLocker unavailable" }
 
+    Update-Current "Checking Java..."
+    $javaBase = "C:\Program Files\Java"
+    if (Test-Path $javaBase) {
+        $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
+        if ($latestJava) {
+            $jPath = $latestJava.FullName
+            $bPath = "$jPath\bin"
+            
+            [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
+            $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+            
+            if ($mPath -notmatch [regex]::Escape($bPath)) {
+                [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
+            }
+            
+            Update-State 20 "OK" "Configured: $jPath"
+        } else {
+            Update-State 20 "WARN" "Folder empty. Copy from USB & double-click to re-check."
+        }
+    } else {
+        Update-State 20 "WARN" "No Java found. Copy to $javaBase & double-click to re-check."
+    }
+
     Update-Current "Checking LibreOffice..."
     $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
     $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
     if ($loApp) {
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --id TheDocumentFoundation.LibreOffice -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
-        }
-        Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
-    } else { Update-State 14 "SKIP" "Not found - skipping" }
+        Update-State 14 "OK" "Found ($($loApp.DisplayVersion))"
+    } else { 
+        Update-State 14 "WARN" "Not found" 
+    }
 
-    Update-Current "Checking Browsers (Interactive)..."
+    Update-Current "Checking Browsers..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $browserResults = @()
+        $hasMissing = $false
         foreach ($app in @(@{n="Firefox"; id="Mozilla.Firefox"}, @{n="Chrome"; id="Google.Chrome"})) {
             $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.n
             if ($isInstalled) {
-                winget upgrade --id $app.id -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
-                $browserResults += "$($app.n): Upgrade Triggered"
-            } else { $browserResults += "$($app.n): Not Installed" }
+                $browserResults += "$($app.n): Installed"
+            } else { 
+                $browserResults += "$($app.n): Missing"
+                $hasMissing = $true
+            }
         }
-        Update-State 16 "OK" ($browserResults -join " | ")
+        $bStatus = if ($hasMissing) { "WARN" } else { "OK" }
+        Update-State 16 $bStatus ($browserResults -join " | ")
     } else { Update-State 16 "ERROR" "Winget unavailable" }
 
-    Update-Current "Checking Adobe Acrobat (Interactive)..."
+    Update-Current "Checking Adobe Acrobat..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $arApp = winget list --id "Adobe.Acrobat.Reader.64-bit" -e 2>$null | Select-String "Adobe"
         if ($arApp) {
-            winget upgrade --id "Adobe.Acrobat.Reader.64-bit" -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --ignore-security-hash --force | Out-Null
-            Update-State 17 "OK" "Upgrade Triggered"
-        } else { Update-State 17 "SKIP" "Not installed - skipping" }
+            Update-State 17 "OK" "Installed"
+        } else { 
+            Update-State 17 "WARN" "Not installed" 
+        }
+    }
+
+    Update-Current "Checking Adobe AIR..."
+    $airPath1 = "C:\Program Files\Common Files\Adobe AIR\Versions\1.0\Adobe AIR.dll"
+    $airPath2 = "C:\Program Files (x86)\Common Files\Adobe AIR\Versions\1.0\Adobe AIR.dll"
+    if ((Test-Path $airPath1) -or (Test-Path $airPath2)) {
+        Update-State 18 "OK" "Installed"
+    } else { 
+        Update-State 18 "WARN" "Not installed" 
+    }
+
+    Update-Current "Checking 7-Zip..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $zipApp = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
+        if ($zipApp) {
+            Update-State 19 "OK" "Installed"
+        } else {
+            Update-State 19 "WARN" "Not installed"
+        }
     }
 
     Update-Current "Maintenance Complete."
