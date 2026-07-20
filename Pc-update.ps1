@@ -27,7 +27,7 @@ $items = @(
     @{ Id=20; Desc="Java (Check & Set Env)" }
     @{ Id=14; Desc="LibreOffice (Check)" }
     @{ Id=16; Desc="Firefox / Chrome (Check)" }
-    @{ Id=17; Desc="Adobe Reader (Check)" }
+    @{ Id=17; Desc="Adobe Acrobat (Check)" }
     @{ Id=18; Desc="Adobe AIR (Check)" }
     @{ Id=19; Desc="7-Zip (Check)" }
 )
@@ -78,7 +78,7 @@ $btnBD.Text = "Bitdefender Endpoint Security Tools"
 $btnBD.Location = New-Object System.Drawing.Point(140,45)
 $btnBD.Width = 250
 $btnBD.Add_Click({
-    Start-Process "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe" -ErrorAction SilentlyContinue
+    Start-Process "C:\Program Files\Bitdefender\Endpoint Security\ui\EPSecurityConsoleUI.exe" -ErrorAction SilentlyContinue
 })
 $mainForm.Controls.Add($btnBD)
 
@@ -126,7 +126,7 @@ $dataGrid.Add_CellDoubleClick({
     if ($eventArgs.RowIndex -lt 0) { return }
     $id = [int]$dataGrid.Rows[$eventArgs.RowIndex].Cells["Id"].Value
     switch ($id) {
-        22 { Start-Process "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe" -ErrorAction SilentlyContinue }
+        22 { Start-Process "C:\Program Files\Bitdefender\Endpoint Security\ui\EPSecurityConsoleUI.exe" -ErrorAction SilentlyContinue }
         20 {
             $javaBase = "C:\Program Files\Java"
             if (Test-Path $javaBase) {
@@ -260,12 +260,12 @@ $workerScriptBlock = {
     } catch { Update-State 12 "ERROR" $_.Exception.Message }
 
     Update-Current "Opening Bitdefender..."
-    $bdExe = "C:\Program Files\Bitdefender Endpoint Security Tools\epconsole.exe"
+    $bdExe = "C:\Program Files\Bitdefender\Endpoint Security\ui\EPSecurityConsoleUI.exe"
     if (Test-Path $bdExe) { 
         Start-Process $bdExe
         Update-State 22 "OK" "Bitdefender Opened" 
     } else { 
-        Update-State 22 "WARN" "Bitdefender not found at default path" 
+        Update-State 22 "WARN" "Bitdefender not found at exact path" 
     }
 
     Update-Current "Checking TeamViewer QS..."
@@ -317,30 +317,34 @@ $workerScriptBlock = {
     }
 
     Update-Current "Checking Browsers..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $browserResults = @()
-        $hasMissing = $false
-        foreach ($app in @(@{n="Firefox"; id="Mozilla.Firefox"}, @{n="Chrome"; id="Google.Chrome"})) {
-            $isInstalled = winget list --id $app.id -e 2>$null | Select-String $app.n
-            if ($isInstalled) {
-                $browserResults += "$($app.n): Installed"
-            } else { 
-                $browserResults += "$($app.n): Missing"
-                $hasMissing = $true
-            }
-        }
-        $bStatus = if ($hasMissing) { "WARN" } else { "OK" }
-        Update-State 16 $bStatus ($browserResults -join " | ")
-    } else { Update-State 16 "ERROR" "Winget unavailable" }
+    $browserResults = @()
+    $hasMissing = $false
+    
+    $firefoxPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
+    if (Test-Path $firefoxPath) { 
+        $browserResults += "Firefox: Installed" 
+    } else { 
+        $browserResults += "Firefox: Missing"
+        $hasMissing = $true 
+    }
+
+    $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+    if (Test-Path $chromePath) { 
+        $browserResults += "Chrome: Installed" 
+    } else { 
+        $browserResults += "Chrome: Missing"
+        $hasMissing = $true 
+    }
+    
+    $bStatus = if ($hasMissing) { "WARN" } else { "OK" }
+    Update-State 16 $bStatus ($browserResults -join " | ")
 
     Update-Current "Checking Adobe Acrobat..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $arApp = winget list --id "Adobe.Acrobat.Reader.64-bit" -e 2>$null | Select-String "Adobe"
-        if ($arApp) {
-            Update-State 17 "OK" "Installed"
-        } else { 
-            Update-State 17 "WARN" "Not installed" 
-        }
+    $acrobatPath = "C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe"
+    if (Test-Path $acrobatPath) {
+        Update-State 17 "OK" "Installed"
+    } else { 
+        Update-State 17 "WARN" "Not installed" 
     }
 
     Update-Current "Checking Adobe AIR..."
