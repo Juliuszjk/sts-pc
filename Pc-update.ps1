@@ -295,7 +295,7 @@ $workerScriptBlock = {
     $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
     if ($loApp) {
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --id TheDocumentFoundation.LibreOffice -e --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --id TheDocumentFoundation.LibreOffice -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
         }
         Update-State 14 "OK" "Found ($($loApp.DisplayVersion)), Upgrade Triggered"
     } else { Update-State 14 "SKIP" "Not found - skipping" }
@@ -306,7 +306,7 @@ $workerScriptBlock = {
         foreach ($app in @(@{n="Firefox"; q="Mozilla Firefox"}, @{n="Chrome"; q="Google Chrome"})) {
             $isInstalled = winget list --name $app.q -e 2>$null | Select-String $app.n
             if ($isInstalled) {
-                winget upgrade --name $app.q --accept-source-agreements --accept-package-agreements | Out-Null
+                winget upgrade --name $app.q -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
                 $browserResults += "$($app.n): Upgrade Triggered"
             } else { $browserResults += "$($app.n): Not Installed" }
         }
@@ -317,7 +317,7 @@ $workerScriptBlock = {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $arApp = winget list --name "Acrobat Reader" 2>$null | Select-String "Acrobat Reader"
         if ($arApp) {
-            winget upgrade --name "Acrobat Reader" --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --name "Acrobat Reader" --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
             Update-State 17 "OK" "Upgrade Triggered"
         } else { Update-State 17 "SKIP" "Not installed - skipping" }
     }
@@ -333,10 +333,10 @@ $workerScriptBlock = {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $zipApp = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
         if ($zipApp) {
-            winget upgrade --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements | Out-Null
+            winget upgrade --id 7zip.7zip -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
             Update-State 19 "OK" "Found, Upgrade Triggered"
         } else {
-            winget install --id 7zip.7zip -e --accept-source-agreements --accept-package-agreements | Out-Null
+            winget install --id 7zip.7zip -e --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --force | Out-Null
             Update-State 19 "ACTION" "Installed"
         }
     }
