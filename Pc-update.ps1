@@ -22,7 +22,7 @@ $items = @(
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=22; Desc="Bitdefender Open" }
-    @{ Id=25; Desc="TeamViewer QS (Auto-Copy to User Desktop)" }
+    @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
     @{ Id=26; Desc="BitLocker Status" }
     @{ Id=20; Desc="Java (Check & Set Env)" }
     @{ Id=14; Desc="LibreOffice (Force Install)" }
@@ -340,15 +340,38 @@ $workerScriptBlock = {
     # FORCE AUTO-INSTALLS
     # ==========================
 
-    Update-Current "Force copying TeamViewer QS to User Desktop..."
-    $tvDest = "$env:USERPROFILE\Desktop\TeamViewerQS.exe"
-    if (Ensure-InstallFiles) {
-        $tvSource = Get-ChildItem -Path $script:localInstalDir -Filter "TeamViewer*.exe" | Select-Object -First 1
-        if ($tvSource) {
-            Copy-Item -Path $tvSource.FullName -Destination $tvDest -Force
-            Update-State 25 "ACTION" "Copied to User Desktop"
-        } else { Update-State 25 "ERROR" "TeamViewer installer not found in USB" }
-    } else { Update-State 25 "WARN" "Awaiting USB for TeamViewer" }
+    Update-Current "Force checking TeamViewer QS..."
+    $pubDesktop = "$env:PUBLIC\Desktop"
+    $userDesktop = "$env:USERPROFILE\Desktop"
+    
+    $tvPub = Get-ChildItem -Path $pubDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue
+    if ($tvPub) {
+        # Ensure only one instance remains on public desktop
+        if ($tvPub.Count -gt 1) {
+            $tvPub | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -Force
+        }
+        Update-State 25 "OK" "Found on Public Desktop"
+    } else {
+        # Check user desktop for any TeamViewerQS variants
+        $tvUser = Get-ChildItem -Path $userDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($tvUser) {
+            Move-Item -Path $tvUser.FullName -Destination "$pubDesktop\TeamViewerQS.exe" -Force
+            Update-State 25 "ACTION" "Moved from User to Public Desktop"
+        } else {
+            # Try to copy from USB if not found on any desktop
+            if (Ensure-InstallFiles) {
+                $tvSource = Get-ChildItem -Path $script:localInstalDir -Filter "TeamViewer*.exe" | Select-Object -First 1
+                if ($tvSource) {
+                    Copy-Item -Path $tvSource.FullName -Destination "$pubDesktop\TeamViewerQS.exe" -Force
+                    Update-State 25 "ACTION" "Copied from USB to Public Desktop"
+                } else { 
+                    Update-State 25 "ERROR" "TeamViewer installer not found in USB" 
+                }
+            } else { 
+                Update-State 25 "WARN" "Awaiting USB for TeamViewer" 
+            }
+        }
+    }
 
     Update-Current "Force installing LibreOffice..."
     if (Ensure-InstallFiles) {
