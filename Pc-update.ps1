@@ -1,5 +1,5 @@
 <#
-    PC PERIODIC MAINTENANCE - GUI Version (Interactive Edition)
+    PC PERIODIC MAINTENANCE - FULL AUTOMATION EDITION (SEQUENTIAL FORCE INSTALL)
     Execution: irm https://raw.githubusercontent.com/Juliuszjk/sts-pc/refs/heads/main/Pc-update.ps1 | iex
 #>
 
@@ -22,14 +22,14 @@ $items = @(
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=22; Desc="Bitdefender Open" }
-    @{ Id=25; Desc="TeamViewer QS (Check)" }
+    @{ Id=25; Desc="TeamViewer QS (Auto-Copy to User Desktop)" }
     @{ Id=26; Desc="BitLocker Status" }
     @{ Id=20; Desc="Java (Check & Set Env)" }
-    @{ Id=14; Desc="LibreOffice (Check)" }
-    @{ Id=16; Desc="Firefox / Chrome (Check)" }
-    @{ Id=17; Desc="Adobe Acrobat (Check)" }
-    @{ Id=18; Desc="Adobe AIR (Check)" }
-    @{ Id=19; Desc="7-Zip (Check)" }
+    @{ Id=14; Desc="LibreOffice (Force Install)" }
+    @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
+    @{ Id=17; Desc="Adobe Acrobat (Force Install)" }
+    @{ Id=18; Desc="Adobe AIR (Force Install)" }
+    @{ Id=19; Desc="7-Zip (Force Install)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -43,7 +43,7 @@ $syncHash = [hashtable]::Synchronized(@{
 foreach ($item in $items) { $syncHash.Status[$item.Id] = "PENDING"; $syncHash.Detail[$item.Id] = "" }
 
 $mainForm = New-Object System.Windows.Forms.Form
-$mainForm.Text = "PC Periodic Maintenance - Interactive Edition"
+$mainForm.Text = "PC Periodic Maintenance - Full Automation Edition"
 $mainForm.Size = New-Object System.Drawing.Size(900,700)
 $mainForm.StartPosition = "CenterScreen"
 $mainForm.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -150,12 +150,12 @@ $dataGrid.Add_CellDoubleClick({
                     $gridRow.Cells["Detail"].Value = "Configured: $jPath"
                     $gridRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::LightGreen
                     
-                    [System.Windows.Forms.MessageBox]::Show("Java set to $jPath and added to PATH.", "Success")
+                    [System.Windows.Forms.MessageBox]::Show("Java configured to $jPath.", "Success")
                 } else {
-                    [System.Windows.Forms.MessageBox]::Show("No Java versions found in $javaBase.", "Error")
+                    [System.Windows.Forms.MessageBox]::Show("Folder $javaBase is empty.", "Error")
                 }
             } else {
-                [System.Windows.Forms.MessageBox]::Show("Folder $javaBase does not exist.", "Error")
+                [System.Windows.Forms.MessageBox]::Show("Java directory not found.", "Error")
             }
         }
         default {
@@ -199,6 +199,44 @@ $workerScriptBlock = {
     function Update-Current($text) { $sync.Current = $text }
 
     $ErrorActionPreference = 'SilentlyContinue'
+    
+    # Destination directory changed to user's personal desktop
+    $script:localInstalDir = "$env:USERPROFILE\Desktop\INSTALKI"
+    $script:filesCopied = $false
+
+    function Ensure-InstallFiles {
+        if ($script:filesCopied) { return $true }
+
+        Update-Current "Checking for USB drive labeled 'SERWIS'..."
+        $usbDrive = $null
+        
+        while (-not $usbDrive) {
+            $usbDrive = Get-Volume | Where-Object { $_.FileSystemLabel -match "SERWIS" } | Select-Object -ExpandProperty DriveLetter
+            if ($usbDrive) { break }
+            Start-Sleep -Seconds 2
+            if ($sync.IsDone) { return $false }
+        }
+
+        $usbPath = "$($usbDrive):\INSTALKI"
+        if (-not (Test-Path $usbPath)) {
+            Update-Current "Found SERWIS drive, but INSTALKI folder is missing!"
+            Start-Sleep -Seconds 3
+            return $false
+        }
+
+        Update-Current "Copying files from USB ($usbPath) to local drive..."
+        try {
+            Copy-Item -Path $usbPath -Destination $script:localInstalDir -Recurse -Force
+            $script:filesCopied = $true
+            return $true
+        } catch {
+            return $false
+        }
+    }
+
+    # ==========================
+    # SYSTEM CHECKS
+    # ==========================
 
     Update-Current "Checking PC Data & Accounts..."
     try {
@@ -259,6 +297,13 @@ $workerScriptBlock = {
         Update-State 12 "OK" "RDP Enabled | NLA Disabled (GPO Enforced) | Everyone Allowed"
     } catch { Update-State 12 "ERROR" $_.Exception.Message }
 
+    Update-Current "Checking BitLocker..."
+    $bitlocker = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
+    if ($bitlocker) {
+        if ($bitlocker.ProtectionStatus -eq 'On') { Update-State 26 "OK" "Protection ON: $($bitlocker.VolumeStatus)" }
+        else { Update-State 26 "WARN" "Protection OFF or Unconfigured" }
+    } else { Update-State 26 "WARN" "BitLocker unavailable" }
+
     Update-Current "Opening Bitdefender..."
     $bdExe = "C:\Program Files\Bitdefender\Endpoint Security\ui\EPSecurityConsoleUI.exe"
     if (Test-Path $bdExe) { 
@@ -267,22 +312,6 @@ $workerScriptBlock = {
     } else { 
         Update-State 22 "WARN" "Bitdefender not found at exact path" 
     }
-
-    Update-Current "Checking TeamViewer QS..."
-    $pubDesktop = "$env:PUBLIC\Desktop"
-    $tvPublic = Get-ChildItem $pubDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue
-    if ($tvPublic) {
-        Update-State 25 "OK" "Found on Public Desktop"
-    } else {
-        Update-State 25 "WARN" "Not found on Public Desktop"
-    }
-
-    Update-Current "Checking BitLocker..."
-    $bitlocker = Get-BitLockerVolume -MountPoint "C:" -ErrorAction SilentlyContinue
-    if ($bitlocker) {
-        if ($bitlocker.ProtectionStatus -eq 'On') { Update-State 26 "OK" "Protection ON: $($bitlocker.VolumeStatus)" }
-        else { Update-State 26 "WARN" "Protection OFF or Unconfigured" }
-    } else { Update-State 26 "WARN" "BitLocker unavailable" }
 
     Update-Current "Checking Java..."
     $javaBase = "C:\Program Files\Java"
@@ -301,70 +330,85 @@ $workerScriptBlock = {
             
             Update-State 20 "OK" "Configured: $jPath"
         } else {
-            Update-State 20 "WARN" "Folder empty. Copy from USB & double-click to re-check."
+            Update-State 20 "WARN" "Folder empty. Copy manually and double-click."
         }
     } else {
-        Update-State 20 "WARN" "No Java found. Copy to $javaBase & double-click to re-check."
+        Update-State 20 "WARN" "No Java found. Copy manually and double-click."
     }
 
-    Update-Current "Checking LibreOffice..."
-    $uninstallKeys = @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")
-    $loApp = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "LibreOffice*" }
-    if ($loApp) {
-        Update-State 14 "OK" "Found ($($loApp.DisplayVersion))"
-    } else { 
-        Update-State 14 "WARN" "Not found" 
-    }
+    # ==========================
+    # FORCE AUTO-INSTALLS
+    # ==========================
 
-    Update-Current "Checking Browsers..."
+    Update-Current "Force copying TeamViewer QS to User Desktop..."
+    $tvDest = "$env:USERPROFILE\Desktop\TeamViewerQS.exe"
+    if (Ensure-InstallFiles) {
+        $tvSource = Get-ChildItem -Path $script:localInstalDir -Filter "TeamViewer*.exe" | Select-Object -First 1
+        if ($tvSource) {
+            Copy-Item -Path $tvSource.FullName -Destination $tvDest -Force
+            Update-State 25 "ACTION" "Copied to User Desktop"
+        } else { Update-State 25 "ERROR" "TeamViewer installer not found in USB" }
+    } else { Update-State 25 "WARN" "Awaiting USB for TeamViewer" }
+
+    Update-Current "Force installing LibreOffice..."
+    if (Ensure-InstallFiles) {
+        $loMsi = Get-ChildItem -Path $script:localInstalDir -Filter "LibreOffice*.msi" | Select-Object -First 1
+        if ($loMsi) {
+            Start-Process "msiexec.exe" -ArgumentList "/i `"$($loMsi.FullName)`" /qn /norestart" -Wait -NoNewWindow
+            Update-State 14 "ACTION" "Installed unconditionally"
+        } else { Update-State 14 "ERROR" "Installer missing" }
+    } else { Update-State 14 "WARN" "Awaiting USB for LibreOffice" }
+
+    Update-Current "Force installing Browsers..."
     $browserResults = @()
-    $hasMissing = $false
+    $hasBrowserIssues = $false
     
-    $firefoxPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
-    if (Test-Path $firefoxPath) { 
-        $browserResults += "Firefox: Installed" 
-    } else { 
-        $browserResults += "Firefox: Missing"
-        $hasMissing = $true 
-    }
+    if (Ensure-InstallFiles) {
+        $ffExe = Get-ChildItem -Path $script:localInstalDir -Filter "Firefox*.exe" | Select-Object -First 1
+        if ($ffExe) {
+            Start-Process $ffExe.FullName -ArgumentList "/S" -Wait -NoNewWindow
+            $browserResults += "Firefox: Installed"
+        } else { $browserResults += "Firefox: Missing file"; $hasBrowserIssues = $true }
 
-    $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-    if (Test-Path $chromePath) { 
-        $browserResults += "Chrome: Installed" 
+        $chrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Chrome*.exe" | Select-Object -First 1
+        if ($chrExe) {
+            Start-Process $chrExe.FullName -ArgumentList "/silent /install" -Wait -NoNewWindow
+            $browserResults += "Chrome: Installed"
+        } else { $browserResults += "Chrome: Missing file"; $hasBrowserIssues = $true }
     } else { 
-        $browserResults += "Chrome: Missing"
-        $hasMissing = $true 
+        $browserResults += "Browsers: Awaiting USB"
+        $hasBrowserIssues = $true 
     }
     
-    $bStatus = if ($hasMissing) { "WARN" } else { "OK" }
+    $bStatus = if ($hasBrowserIssues) { "WARN" } else { "ACTION" }
     Update-State 16 $bStatus ($browserResults -join " | ")
 
-    Update-Current "Checking Adobe Acrobat..."
-    $acrobatPath = "C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe"
-    if (Test-Path $acrobatPath) {
-        Update-State 17 "OK" "Installed"
-    } else { 
-        Update-State 17 "WARN" "Not installed" 
-    }
+    Update-Current "Force installing Adobe Acrobat..."
+    if (Ensure-InstallFiles) {
+        $acrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader*.exe" | Select-Object -First 1
+        if ($acrExe) {
+            Start-Process $acrExe.FullName -ArgumentList "/sAll /rs /msi /qn" -Wait -NoNewWindow
+            Update-State 17 "ACTION" "Installed unconditionally"
+        } else { Update-State 17 "ERROR" "Installer missing" }
+    } else { Update-State 17 "WARN" "Awaiting USB for Acrobat" }
 
-    Update-Current "Checking Adobe AIR..."
-    $airPath1 = "C:\Program Files\Common Files\Adobe AIR\Versions\1.0\Adobe AIR.dll"
-    $airPath2 = "C:\Program Files (x86)\Common Files\Adobe AIR\Versions\1.0\Adobe AIR.dll"
-    if ((Test-Path $airPath1) -or (Test-Path $airPath2)) {
-        Update-State 18 "OK" "Installed"
-    } else { 
-        Update-State 18 "WARN" "Not installed" 
-    }
+    Update-Current "Force installing Adobe AIR..."
+    if (Ensure-InstallFiles) {
+        $airExe = Get-ChildItem -Path $script:localInstalDir -Filter "AdobeAIR*.exe" | Select-Object -First 1
+        if ($airExe) {
+            Start-Process $airExe.FullName -ArgumentList "-silent" -Wait -NoNewWindow
+            Update-State 18 "ACTION" "Installed unconditionally"
+        } else { Update-State 18 "ERROR" "Installer missing" }
+    } else { Update-State 18 "WARN" "Awaiting USB for AIR" }
 
-    Update-Current "Checking 7-Zip..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $zipApp = winget list --id 7zip.7zip -e 2>$null | Select-String "7zip.7zip"
-        if ($zipApp) {
-            Update-State 19 "OK" "Installed"
-        } else {
-            Update-State 19 "WARN" "Not installed"
-        }
-    }
+    Update-Current "Force installing 7-Zip..."
+    if (Ensure-InstallFiles) {
+        $7zExe = Get-ChildItem -Path $script:localInstalDir -Filter "7z*.exe" | Select-Object -First 1
+        if ($7zExe) {
+            Start-Process $7zExe.FullName -ArgumentList "/S" -Wait -NoNewWindow
+            Update-State 19 "ACTION" "Installed unconditionally"
+        } else { Update-State 19 "ERROR" "Installer missing" }
+    } else { Update-State 19 "WARN" "Awaiting USB for 7-Zip" }
 
     Update-Current "Maintenance Complete."
     $sync.IsDone = $true
