@@ -27,9 +27,9 @@ $items = @(
     @{ Id=20; Desc="Java (Check & Set Env)" }
     @{ Id=14; Desc="LibreOffice (Force Install)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
-    @{ Id=17; Desc="Adobe Acrobat (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
+    @{ Id=17; Desc="Adobe Acrobat (Manual Install)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -200,7 +200,6 @@ $workerScriptBlock = {
 
     $ErrorActionPreference = 'SilentlyContinue'
     
-    # Destination directory changed to user's personal desktop
     $script:localInstalDir = "$env:USERPROFILE\Desktop\INSTALKI"
     $script:filesCopied = $false
 
@@ -233,10 +232,6 @@ $workerScriptBlock = {
             return $false
         }
     }
-
-    # ==========================
-    # SYSTEM CHECKS
-    # ==========================
 
     Update-Current "Checking PC Data & Accounts..."
     try {
@@ -336,29 +331,22 @@ $workerScriptBlock = {
         Update-State 20 "WARN" "No Java found. Copy manually and double-click."
     }
 
-    # ==========================
-    # FORCE AUTO-INSTALLS
-    # ==========================
-
     Update-Current "Force checking TeamViewer QS..."
     $pubDesktop = "$env:PUBLIC\Desktop"
     $userDesktop = "$env:USERPROFILE\Desktop"
     
     $tvPub = Get-ChildItem -Path $pubDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue
     if ($tvPub) {
-        # Ensure only one instance remains on public desktop
         if ($tvPub.Count -gt 1) {
             $tvPub | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -Force
         }
         Update-State 25 "OK" "Found on Public Desktop"
     } else {
-        # Check user desktop for any TeamViewerQS variants
         $tvUser = Get-ChildItem -Path $userDesktop -Filter "TeamViewerQS*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($tvUser) {
             Move-Item -Path $tvUser.FullName -Destination "$pubDesktop\TeamViewerQS.exe" -Force
             Update-State 25 "ACTION" "Moved from User to Public Desktop"
         } else {
-            # Try to copy from USB if not found on any desktop
             if (Ensure-InstallFiles) {
                 $tvSource = Get-ChildItem -Path $script:localInstalDir -Filter "TeamViewer*.exe" | Select-Object -First 1
                 if ($tvSource) {
@@ -406,15 +394,6 @@ $workerScriptBlock = {
     $bStatus = if ($hasBrowserIssues) { "WARN" } else { "ACTION" }
     Update-State 16 $bStatus ($browserResults -join " | ")
 
-    Update-Current "Force installing Adobe Acrobat..."
-    if (Ensure-InstallFiles) {
-        $acrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader*.exe" | Select-Object -First 1
-        if ($acrExe) {
-            Start-Process $acrExe.FullName -ArgumentList "/sAll /rs /msi /qn" -Wait -NoNewWindow
-            Update-State 17 "ACTION" "Installed unconditionally"
-        } else { Update-State 17 "ERROR" "Installer missing" }
-    } else { Update-State 17 "WARN" "Awaiting USB for Acrobat" }
-
     Update-Current "Force installing Adobe AIR..."
     if (Ensure-InstallFiles) {
         $airExe = Get-ChildItem -Path $script:localInstalDir -Filter "AdobeAIR*.exe" | Select-Object -First 1
@@ -432,6 +411,20 @@ $workerScriptBlock = {
             Update-State 19 "ACTION" "Installed unconditionally"
         } else { Update-State 19 "ERROR" "Installer missing" }
     } else { Update-State 19 "WARN" "Awaiting USB for 7-Zip" }
+
+    # ==========================
+    # MANUAL INSTALLS (MOVED TO END)
+    # ==========================
+
+    Update-Current "Manual installing Adobe Acrobat..."
+    if (Ensure-InstallFiles) {
+        $acrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader*.exe" | Select-Object -First 1
+        if ($acrExe) {
+            # Removed silent flags so the user can interact and uncheck unwanted offers
+            Start-Process $acrExe.FullName -Wait
+            Update-State 17 "ACTION" "Launched for manual installation"
+        } else { Update-State 17 "ERROR" "Installer missing" }
+    } else { Update-State 17 "WARN" "Awaiting USB for Acrobat" }
 
     Update-Current "Maintenance Complete."
     $sync.IsDone = $true
