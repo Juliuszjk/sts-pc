@@ -420,11 +420,18 @@ $workerScriptBlock = {
     if (Ensure-InstallFiles) {
         $acrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader*.exe" | Select-Object -First 1
         if ($acrExe) {
-            # Removed silent flags so the user can interact and uncheck unwanted offers
             Start-Process $acrExe.FullName -Wait
             Update-State 17 "ACTION" "Launched for manual installation"
         } else { Update-State 17 "ERROR" "Installer missing" }
     } else { Update-State 17 "WARN" "Awaiting USB for Acrobat" }
+
+    # ==========================
+    # CLEANUP
+    # ==========================
+    Update-Current "Cleaning up temporary files..."
+    if (Test-Path $script:localInstalDir) {
+        Remove-Item -Path $script:localInstalDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     Update-Current "Maintenance Complete."
     $sync.IsDone = $true
