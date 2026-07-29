@@ -29,7 +29,7 @@ $items = @(
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
-    @{ Id=17; Desc="Adobe Acrobat (Launch for Update)" }
+    @{ Id=17; Desc="Adobe Acrobat (Manual Install)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -413,29 +413,17 @@ $workerScriptBlock = {
     } else { Update-State 19 "WARN" "Awaiting USB for 7-Zip" }
 
     # ==========================
-    # LAUNCH ADOBE ACROBAT
+    # MANUAL INSTALLS (MOVED TO END)
     # ==========================
-    Update-Current "Launching Adobe Acrobat for update..."
-    $adobeStarted = $false
-    $adobePaths = @(
-        "C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-        "C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-        "C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe"
-    )
-    
-    foreach ($path in $adobePaths) {
-        if (Test-Path $path) {
-            Start-Process $path -ErrorAction SilentlyContinue
-            $adobeStarted = $true
-            break
-        }
-    }
-    
-    if ($adobeStarted) {
-        Update-State 17 "ACTION" "Aplikacja uruchomiona (zrób update z menu Pomoc)"
-    } else {
-        Update-State 17 "WARN" "todo aktualizacja"
-    }
+
+    Update-Current "Manual installing Adobe Acrobat..."
+    if (Ensure-InstallFiles) {
+        $acrExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader*.exe" | Select-Object -First 1
+        if ($acrExe) {
+            Start-Process $acrExe.FullName -Wait
+            Update-State 17 "ACTION" "Launched for manual installation"
+        } else { Update-State 17 "ERROR" "Installer missing" }
+    } else { Update-State 17 "WARN" "Awaiting USB for Acrobat" }
 
     # ==========================
     # CLEANUP
