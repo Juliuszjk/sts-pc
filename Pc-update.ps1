@@ -23,15 +23,13 @@ $items = @(
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=22; Desc="Bitdefender Open" }
     @{ Id=26; Desc="BitLocker Status" }
-    @{ Id=31; Desc="Uninstall HP Wolf Security" }
     @{ Id=20; Desc="Java (Copy from USB & Set Env)" }
     @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
     @{ Id=30; Desc="Adobe Reader (Force Install)" }
-    @{ Id=17; Desc="Adobe Acrobat (Launch for Update)" }
-    @{ Id=32; Desc="Arcabit ZSBrańsk (UI Install)" }
+    @{ Id=32; Desc="Copy Arcabit to Desktop (Keep)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -303,20 +301,6 @@ $workerScriptBlock = {
     }
 
     # ==========================
-    # UNINSTALL HP WOLF SECURITY
-    # ==========================
-    Update-Current "Uninstalling HP Wolf Security..."
-    try {
-        $hpWolf = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -match "HP Wolf Security" }
-        if ($hpWolf) {
-            $hpWolf | ForEach-Object { $_.Uninstall() | Out-Null }
-            Update-State 31 "ACTION" "Uninstalled via WMI"
-        } else {
-            Update-State 31 "SKIP" "HP Wolf Security not found"
-        }
-    } catch { Update-State 31 "ERROR" $_.Exception.Message }
-
-    # ==========================
     # JAVA (COPY & CONFIGURE)
     # ==========================
     Update-Current "Copying and Checking Java..."
@@ -438,50 +422,22 @@ $workerScriptBlock = {
     } else { Update-State 30 "WARN" "Awaiting USB for Reader" }
 
     # ==========================
-    # LAUNCH ADOBE ACROBAT (UPDATE)
+    # COPY ARCABIT FOLDER TO DESKTOP
     # ==========================
-    Update-Current "Launching Adobe Acrobat for update..."
-    $adobeStarted = $false
-    $adobePaths = @(
-        "C:\Program Files\Adobe\Acrobat DC\Acrobat\Acrobat.exe",
-        "C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-        "C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe"
-    )
-    
-    foreach ($path in $adobePaths) {
-        if (Test-Path $path) {
-            Start-Process $path -ErrorAction SilentlyContinue
-            $adobeStarted = $true
-            break
-        }
-    }
-    
-    if ($adobeStarted) {
-        Update-State 17 "ACTION" "Aplikacja uruchomiona (zrób update z menu Pomoc)"
-    } else {
-        Update-State 17 "WARN" "todo aktualizacja"
-    }
-
-    # ==========================
-    # ARCABIT INSTALLATION (UI)
-    # ==========================
-    Update-Current "Launching Arcabit UI Installer..."
+    Update-Current "Copying Arcabit folder to Desktop..."
     if (Ensure-USB) {
-        $arcabitPaths = @(
-            "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk\arcabitsetup2.exe",
-            "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk\arcabitsetup2"
-        )
-        $arcFound = $false
-        foreach ($path in $arcabitPaths) {
-            if (Test-Path $path) {
-                Start-Process $path -Wait
-                Update-State 32 "ACTION" "UI Installer Finished"
-                $arcFound = $true
-                break
+        $usbArcabitPath = "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk"
+        $localArcabitDir = "$env:USERPROFILE\Desktop\arcabit-ZSBransk"
+        
+        if (Test-Path $usbArcabitPath) {
+            try {
+                Copy-Item -Path $usbArcabitPath -Destination $localArcabitDir -Recurse -Force
+                Update-State 32 "ACTION" "Copied to Desktop (Kept)"
+            } catch {
+                Update-State 32 "ERROR" $_.Exception.Message
             }
-        }
-        if (-not $arcFound) {
-            Update-State 32 "ERROR" "Installer not found at ZSBrańsk\arcabit-ZSBransk"
+        } else {
+            Update-State 32 "WARN" "Source folder not found"
         }
     } else {
         Update-State 32 "WARN" "USB Drive not found"
@@ -492,6 +448,8 @@ $workerScriptBlock = {
     # ==========================
     Update-Current "Cleaning up temporary files..."
     if (Test-Path $script:localInstalDir) {
+        # Usunie C:\Users\user\Desktop\INSTALKI
+        # Zostawi C:\Users\user\Desktop\arcabit-ZSBransk
         Remove-Item -Path $script:localInstalDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
