@@ -22,14 +22,16 @@ $items = @(
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=22; Desc="Bitdefender Open" }
-    @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
     @{ Id=26; Desc="BitLocker Status" }
-    @{ Id=20; Desc="Java (Check & Set Env)" }
-    @{ Id=14; Desc="LibreOffice (Force Install)" }
+    @{ Id=31; Desc="Uninstall HP Wolf Security" }
+    @{ Id=20; Desc="Java (Copy from USB & Set Env)" }
+    @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
+    @{ Id=30; Desc="Adobe Reader (Force Install)" }
     @{ Id=17; Desc="Adobe Acrobat (Launch for Update)" }
+    @{ Id=32; Desc="Arcabit ZSBrańsk (UI Install)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -142,20 +144,8 @@ $dataGrid.Add_CellDoubleClick({
                         [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
                     }
                     
-                    $syncHash.Status[20] = "OK"
-                    $syncHash.Detail[20] = "Configured: $jPath"
-                    
-                    $gridRow = $dataGrid.Rows[$eventArgs.RowIndex]
-                    $gridRow.Cells["Status"].Value = "OK"
-                    $gridRow.Cells["Detail"].Value = "Configured: $jPath"
-                    $gridRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::LightGreen
-                    
                     [System.Windows.Forms.MessageBox]::Show("Java configured to $jPath.", "Success")
-                } else {
-                    [System.Windows.Forms.MessageBox]::Show("Folder $javaBase is empty.", "Error")
                 }
-            } else {
-                [System.Windows.Forms.MessageBox]::Show("Java directory not found.", "Error")
             }
         }
         default {
@@ -202,21 +192,25 @@ $workerScriptBlock = {
     
     $script:localInstalDir = "$env:USERPROFILE\Desktop\INSTALKI"
     $script:filesCopied = $false
+    $script:usbDriveLetter = $null
 
-    function Ensure-InstallFiles {
-        if ($script:filesCopied) { return $true }
-
+    function Ensure-USB {
+        if ($script:usbDriveLetter) { return $true }
         Update-Current "Checking for USB drive labeled 'SERWIS'..."
-        $usbDrive = $null
-        
-        while (-not $usbDrive) {
-            $usbDrive = Get-Volume | Where-Object { $_.FileSystemLabel -match "SERWIS" } | Select-Object -ExpandProperty DriveLetter
-            if ($usbDrive) { break }
+        while (-not $script:usbDriveLetter) {
+            $drive = Get-Volume | Where-Object { $_.FileSystemLabel -match "SERWIS" } | Select-Object -ExpandProperty DriveLetter
+            if ($drive) { $script:usbDriveLetter = $drive; break }
             Start-Sleep -Seconds 2
             if ($sync.IsDone) { return $false }
         }
+        return $true
+    }
 
-        $usbPath = "$($usbDrive):\INSTALKI"
+    function Ensure-InstallFiles {
+        if ($script:filesCopied) { return $true }
+        if (-not (Ensure-USB)) { return $false }
+
+        $usbPath = "$($script:usbDriveLetter):\INSTALKI"
         if (-not (Test-Path $usbPath)) {
             Update-Current "Found SERWIS drive, but INSTALKI folder is missing!"
             Start-Sleep -Seconds 3
@@ -308,28 +302,56 @@ $workerScriptBlock = {
         Update-State 22 "WARN" "Bitdefender not found at exact path" 
     }
 
-    Update-Current "Checking Java..."
-    $javaBase = "C:\Program Files\Java"
-    if (Test-Path $javaBase) {
-        $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
-        if ($latestJava) {
-            $jPath = $latestJava.FullName
-            $bPath = "$jPath\bin"
-            
-            [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
-            $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-            
-            if ($mPath -notmatch [regex]::Escape($bPath)) {
-                [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
-            }
-            
-            Update-State 20 "OK" "Configured: $jPath"
+    # ==========================
+    # UNINSTALL HP WOLF SECURITY
+    # ==========================
+    Update-Current "Uninstalling HP Wolf Security..."
+    try {
+        $hpWolf = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -match "HP Wolf Security" }
+        if ($hpWolf) {
+            $hpWolf | ForEach-Object { $_.Uninstall() | Out-Null }
+            Update-State 31 "ACTION" "Uninstalled via WMI"
         } else {
-            Update-State 20 "WARN" "Folder empty. Copy manually and double-click."
+            Update-State 31 "SKIP" "HP Wolf Security not found"
         }
-    } else {
-        Update-State 20 "WARN" "No Java found. Copy manually and double-click."
-    }
+    } catch { Update-State 31 "ERROR" $_.Exception.Message }
+
+    # ==========================
+    # JAVA (COPY & CONFIGURE)
+    # ==========================
+    Update-Current "Copying and Checking Java..."
+    try {
+        if (Ensure-USB) {
+            $usbJavaPath = "$($script:usbDriveLetter):\Java"
+            $localJavaBase = "C:\Program Files\Java"
+            
+            if (Test-Path $usbJavaPath) {
+                if (-not (Test-Path $localJavaBase)) { New-Item -ItemType Directory -Path $localJavaBase -Force | Out-Null }
+                Copy-Item -Path "$usbJavaPath\*" -Destination $localJavaBase -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        $javaBase = "C:\Program Files\Java"
+        if (Test-Path $javaBase) {
+            $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
+            if ($latestJava) {
+                $jPath = $latestJava.FullName
+                $bPath = "$jPath\bin"
+                
+                [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
+                $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                
+                if ($mPath -notmatch [regex]::Escape($bPath)) {
+                    [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
+                }
+                Update-State 20 "OK" "Copied from USB & Configured: $jPath"
+            } else {
+                Update-State 20 "WARN" "Folder empty. Copy manually and double-click."
+            }
+        } else {
+            Update-State 20 "WARN" "No Java found. Copy manually and double-click."
+        }
+    } catch { Update-State 20 "ERROR" $_.Exception.Message }
 
     Update-Current "Force checking TeamViewer QS..."
     $pubDesktop = "$env:PUBLIC\Desktop"
@@ -360,15 +382,6 @@ $workerScriptBlock = {
             }
         }
     }
-
-    Update-Current "Force installing LibreOffice..."
-    if (Ensure-InstallFiles) {
-        $loMsi = Get-ChildItem -Path $script:localInstalDir -Filter "LibreOffice*.msi" | Select-Object -First 1
-        if ($loMsi) {
-            Start-Process "msiexec.exe" -ArgumentList "/i `"$($loMsi.FullName)`" /qn /norestart" -Wait -NoNewWindow
-            Update-State 14 "ACTION" "Installed unconditionally"
-        } else { Update-State 14 "ERROR" "Installer missing" }
-    } else { Update-State 14 "WARN" "Awaiting USB for LibreOffice" }
 
     Update-Current "Force installing Browsers..."
     $browserResults = @()
@@ -413,7 +426,19 @@ $workerScriptBlock = {
     } else { Update-State 19 "WARN" "Awaiting USB for 7-Zip" }
 
     # ==========================
-    # LAUNCH ADOBE ACROBAT
+    # INSTALL ADOBE READER
+    # ==========================
+    Update-Current "Force installing Adobe Reader..."
+    if (Ensure-InstallFiles) {
+        $readerExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader_pl_install*.exe" | Select-Object -First 1
+        if ($readerExe) {
+            Start-Process $readerExe.FullName -ArgumentList "/sAll /rs /msi EULA_ACCEPT=YES" -Wait -NoNewWindow
+            Update-State 30 "ACTION" "Installed unconditionally"
+        } else { Update-State 30 "ERROR" "Installer missing" }
+    } else { Update-State 30 "WARN" "Awaiting USB for Reader" }
+
+    # ==========================
+    # LAUNCH ADOBE ACROBAT (UPDATE)
     # ==========================
     Update-Current "Launching Adobe Acrobat for update..."
     $adobeStarted = $false
@@ -435,6 +460,31 @@ $workerScriptBlock = {
         Update-State 17 "ACTION" "Aplikacja uruchomiona (zrób update z menu Pomoc)"
     } else {
         Update-State 17 "WARN" "todo aktualizacja"
+    }
+
+    # ==========================
+    # ARCABIT INSTALLATION (UI)
+    # ==========================
+    Update-Current "Launching Arcabit UI Installer..."
+    if (Ensure-USB) {
+        $arcabitPaths = @(
+            "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk\arcabitsetup2.exe",
+            "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk\arcabitsetup2"
+        )
+        $arcFound = $false
+        foreach ($path in $arcabitPaths) {
+            if (Test-Path $path) {
+                Start-Process $path -Wait
+                Update-State 32 "ACTION" "UI Installer Finished"
+                $arcFound = $true
+                break
+            }
+        }
+        if (-not $arcFound) {
+            Update-State 32 "ERROR" "Installer not found at ZSBrańsk\arcabit-ZSBransk"
+        }
+    } else {
+        Update-State 32 "WARN" "USB Drive not found"
     }
 
     # ==========================
