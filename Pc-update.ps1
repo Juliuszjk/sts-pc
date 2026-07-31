@@ -25,8 +25,7 @@ $items = @(
     @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
     @{ Id=26; Desc="BitLocker Status" }
     @{ Id=20; Desc="Java (Auto-Copy & Set Env)" }
-    @{ Id=27; Desc="ZSBrańsk (Auto-Copy to Desktop)" }
-    @{ Id=14; Desc="LibreOffice (Force Install)" }
+    @{ Id=27; Desc="ZSBrańsk (Auto-Copy arcabit to Desktop)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
@@ -350,15 +349,15 @@ $workerScriptBlock = {
     # ==========================
     # ZSBRAŃSK AUTO-COPY
     # ==========================
-    Update-Current "Copying ZSBrańsk (acrabit-ZSBransk)..."
+    Update-Current "Copying ZSBrańsk (arcabit-ZSBransk)..."
     if (Ensure-USBDrive) {
-        $zsbSrc = "$($script:usbDriveLetter):\ZSBrańsk\acrabit-ZSBransk"
+        $zsbSrc = "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk"
         if (Test-Path $zsbSrc) {
-            $zsbDest = "$env:USERPROFILE\Desktop\acrabit-ZSBransk"
+            $zsbDest = "$env:USERPROFILE\Desktop\arcabit-ZSBransk"
             Copy-Item -Path $zsbSrc -Destination $zsbDest -Recurse -Force
             Update-State 27 "ACTION" "Copied to Desktop"
         } else {
-            Update-State 27 "WARN" "ZSBrańsk folder missing on USB"
+            Update-State 27 "WARN" "arcabit-ZSBransk folder missing on USB"
         }
     } else {
         Update-State 27 "WARN" "Awaiting USB for ZSBrańsk"
@@ -396,15 +395,6 @@ $workerScriptBlock = {
             }
         }
     }
-
-    Update-Current "Force installing LibreOffice..."
-    if (Ensure-InstallFiles) {
-        $loMsi = Get-ChildItem -Path $script:localInstalDir -Filter "LibreOffice*.msi" | Select-Object -First 1
-        if ($loMsi) {
-            Start-Process "msiexec.exe" -ArgumentList "/i `"$($loMsi.FullName)`" /qn /norestart" -Wait -NoNewWindow
-            Update-State 14 "ACTION" "Installed unconditionally"
-        } else { Update-State 14 "ERROR" "Installer missing" }
-    } else { Update-State 14 "WARN" "Awaiting USB for LibreOffice" }
 
     Update-Current "Force installing Browsers..."
     $browserResults = @()
