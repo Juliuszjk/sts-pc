@@ -22,14 +22,14 @@ $items = @(
     @{ Id=8;  Desc="Free Drive Space (%)" }
     @{ Id=12; Desc="Remote Desktop (Everyone + No NLA)" }
     @{ Id=22; Desc="Bitdefender Open" }
-    @{ Id=26; Desc="BitLocker Status" }
-    @{ Id=20; Desc="Java (Copy from USB & Set Env)" }
     @{ Id=25; Desc="TeamViewer QS (Auto-Copy to Public Desktop)" }
+    @{ Id=26; Desc="BitLocker Status" }
+    @{ Id=20; Desc="Java (Auto-Copy & Set Env)" }
+    @{ Id=27; Desc="ZSBrańsk (Auto-Copy to Desktop)" }
+    @{ Id=14; Desc="LibreOffice (Force Install)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
-    @{ Id=30; Desc="Adobe Reader (Force Install)" }
-    @{ Id=32; Desc="Copy Arcabit to Desktop (Keep)" }
 )
 
 $syncHash = [hashtable]::Synchronized(@{
@@ -142,8 +142,20 @@ $dataGrid.Add_CellDoubleClick({
                         [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
                     }
                     
+                    $syncHash.Status[20] = "OK"
+                    $syncHash.Detail[20] = "Configured manually: $jPath"
+                    
+                    $gridRow = $dataGrid.Rows[$eventArgs.RowIndex]
+                    $gridRow.Cells["Status"].Value = "OK"
+                    $gridRow.Cells["Detail"].Value = "Configured manually: $jPath"
+                    $gridRow.DefaultCellStyle.BackColor = [System.Drawing.Color]::LightGreen
+                    
                     [System.Windows.Forms.MessageBox]::Show("Java configured to $jPath.", "Success")
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show("Folder $javaBase is empty.", "Error")
                 }
+            } else {
+                [System.Windows.Forms.MessageBox]::Show("Java directory not found.", "Error")
             }
         }
         default {
@@ -189,40 +201,39 @@ $workerScriptBlock = {
     $ErrorActionPreference = 'SilentlyContinue'
     
     $script:localInstalDir = "$env:USERPROFILE\Desktop\INSTALKI"
-    $script:filesCopied = $false
     $script:usbDriveLetter = $null
+    $script:filesCopied = $false
 
-    function Ensure-USB {
+    function Ensure-USBDrive {
         if ($script:usbDriveLetter) { return $true }
         Update-Current "Checking for USB drive labeled 'SERWIS'..."
         while (-not $script:usbDriveLetter) {
-            $drive = Get-Volume | Where-Object { $_.FileSystemLabel -match "SERWIS" } | Select-Object -ExpandProperty DriveLetter
-            if ($drive) { $script:usbDriveLetter = $drive; break }
+            $script:usbDriveLetter = Get-Volume | Where-Object { $_.FileSystemLabel -match "SERWIS" } | Select-Object -ExpandProperty DriveLetter
+            if ($script:usbDriveLetter) { return $true }
             Start-Sleep -Seconds 2
             if ($sync.IsDone) { return $false }
         }
-        return $true
     }
 
     function Ensure-InstallFiles {
         if ($script:filesCopied) { return $true }
-        if (-not (Ensure-USB)) { return $false }
-
-        $usbPath = "$($script:usbDriveLetter):\INSTALKI"
-        if (-not (Test-Path $usbPath)) {
-            Update-Current "Found SERWIS drive, but INSTALKI folder is missing!"
-            Start-Sleep -Seconds 3
-            return $false
+        if (Ensure-USBDrive) {
+            $usbPath = "$($script:usbDriveLetter):\INSTALKI"
+            if (-not (Test-Path $usbPath)) {
+                Update-Current "Found SERWIS drive, but INSTALKI folder is missing!"
+                Start-Sleep -Seconds 3
+                return $false
+            }
+            Update-Current "Copying files from USB ($usbPath) to local drive..."
+            try {
+                Copy-Item -Path $usbPath -Destination $script:localInstalDir -Recurse -Force
+                $script:filesCopied = $true
+                return $true
+            } catch {
+                return $false
+            }
         }
-
-        Update-Current "Copying files from USB ($usbPath) to local drive..."
-        try {
-            Copy-Item -Path $usbPath -Destination $script:localInstalDir -Recurse -Force
-            $script:filesCopied = $true
-            return $true
-        } catch {
-            return $false
-        }
+        return $false
     }
 
     Update-Current "Checking PC Data & Accounts..."
@@ -301,42 +312,61 @@ $workerScriptBlock = {
     }
 
     # ==========================
-    # JAVA (COPY & CONFIGURE)
+    # JAVA AUTO-COPY & CONFIG
     # ==========================
-    Update-Current "Copying and Checking Java..."
-    try {
-        if (Ensure-USB) {
-            $usbJavaPath = "$($script:usbDriveLetter):\Java"
-            $localJavaBase = "C:\Program Files\Java"
-            
-            if (Test-Path $usbJavaPath) {
-                if (-not (Test-Path $localJavaBase)) { New-Item -ItemType Directory -Path $localJavaBase -Force | Out-Null }
-                Copy-Item -Path "$usbJavaPath\*" -Destination $localJavaBase -Recurse -Force -ErrorAction SilentlyContinue
-            }
+    Update-Current "Checking and Copying Java..."
+    $javaBase = "C:\Program Files\Java"
+    
+    if (Ensure-USBDrive) {
+        $javaSrc = "$($script:usbDriveLetter):\Java"
+        if (Test-Path $javaSrc) {
+            Update-Current "Copying Java from USB..."
+            if (-not (Test-Path $javaBase)) { New-Item -ItemType Directory -Path $javaBase -Force | Out-Null }
+            Copy-Item -Path "$javaSrc\*" -Destination $javaBase -Recurse -Force
         }
-        
-        $javaBase = "C:\Program Files\Java"
-        if (Test-Path $javaBase) {
-            $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
-            if ($latestJava) {
-                $jPath = $latestJava.FullName
-                $bPath = "$jPath\bin"
-                
-                [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
-                $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-                
-                if ($mPath -notmatch [regex]::Escape($bPath)) {
-                    [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
-                }
-                Update-State 20 "OK" "Copied from USB & Configured: $jPath"
-            } else {
-                Update-State 20 "WARN" "Folder empty. Copy manually and double-click."
-            }
-        } else {
-            Update-State 20 "WARN" "No Java found. Copy manually and double-click."
-        }
-    } catch { Update-State 20 "ERROR" $_.Exception.Message }
+    }
 
+    if (Test-Path $javaBase) {
+        $latestJava = Get-ChildItem -Path $javaBase -Directory | Sort-Object Name -Descending | Select-Object -First 1
+        if ($latestJava) {
+            $jPath = $latestJava.FullName
+            $bPath = "$jPath\bin"
+            
+            [Environment]::SetEnvironmentVariable("JAVA_HOME", $jPath, "Machine")
+            $mPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+            
+            if ($mPath -notmatch [regex]::Escape($bPath)) {
+                [Environment]::SetEnvironmentVariable("Path", "$mPath;$bPath", "Machine")
+            }
+            
+            Update-State 20 "OK" "Copied & Configured: $jPath"
+        } else {
+            Update-State 20 "WARN" "Folder empty. Copy manually and double-click."
+        }
+    } else {
+        Update-State 20 "WARN" "No Java found on USB or Local."
+    }
+
+    # ==========================
+    # ZSBRAŃSK AUTO-COPY
+    # ==========================
+    Update-Current "Copying ZSBrańsk (acrabit-ZSBransk)..."
+    if (Ensure-USBDrive) {
+        $zsbSrc = "$($script:usbDriveLetter):\ZSBrańsk\acrabit-ZSBransk"
+        if (Test-Path $zsbSrc) {
+            $zsbDest = "$env:USERPROFILE\Desktop\acrabit-ZSBransk"
+            Copy-Item -Path $zsbSrc -Destination $zsbDest -Recurse -Force
+            Update-State 27 "ACTION" "Copied to Desktop"
+        } else {
+            Update-State 27 "WARN" "ZSBrańsk folder missing on USB"
+        }
+    } else {
+        Update-State 27 "WARN" "Awaiting USB for ZSBrańsk"
+    }
+
+    # ==========================
+    # FORCE INSTALLATIONS
+    # ==========================
     Update-Current "Force checking TeamViewer QS..."
     $pubDesktop = "$env:PUBLIC\Desktop"
     $userDesktop = "$env:USERPROFILE\Desktop"
@@ -366,6 +396,15 @@ $workerScriptBlock = {
             }
         }
     }
+
+    Update-Current "Force installing LibreOffice..."
+    if (Ensure-InstallFiles) {
+        $loMsi = Get-ChildItem -Path $script:localInstalDir -Filter "LibreOffice*.msi" | Select-Object -First 1
+        if ($loMsi) {
+            Start-Process "msiexec.exe" -ArgumentList "/i `"$($loMsi.FullName)`" /qn /norestart" -Wait -NoNewWindow
+            Update-State 14 "ACTION" "Installed unconditionally"
+        } else { Update-State 14 "ERROR" "Installer missing" }
+    } else { Update-State 14 "WARN" "Awaiting USB for LibreOffice" }
 
     Update-Current "Force installing Browsers..."
     $browserResults = @()
@@ -410,46 +449,10 @@ $workerScriptBlock = {
     } else { Update-State 19 "WARN" "Awaiting USB for 7-Zip" }
 
     # ==========================
-    # INSTALL ADOBE READER
-    # ==========================
-    Update-Current "Force installing Adobe Reader..."
-    if (Ensure-InstallFiles) {
-        $readerExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader_pl_install*.exe" | Select-Object -First 1
-        if ($readerExe) {
-            Start-Process $readerExe.FullName -ArgumentList "/sAll /rs /msi EULA_ACCEPT=YES" -Wait -NoNewWindow
-            Update-State 30 "ACTION" "Installed unconditionally"
-        } else { Update-State 30 "ERROR" "Installer missing" }
-    } else { Update-State 30 "WARN" "Awaiting USB for Reader" }
-
-    # ==========================
-    # COPY ARCABIT FOLDER TO DESKTOP
-    # ==========================
-    Update-Current "Copying Arcabit folder to Desktop..."
-    if (Ensure-USB) {
-        $usbArcabitPath = "$($script:usbDriveLetter):\ZSBrańsk\arcabit-ZSBransk"
-        $localArcabitDir = "$env:USERPROFILE\Desktop\arcabit-ZSBransk"
-        
-        if (Test-Path $usbArcabitPath) {
-            try {
-                Copy-Item -Path $usbArcabitPath -Destination $localArcabitDir -Recurse -Force
-                Update-State 32 "ACTION" "Copied to Desktop (Kept)"
-            } catch {
-                Update-State 32 "ERROR" $_.Exception.Message
-            }
-        } else {
-            Update-State 32 "WARN" "Source folder not found"
-        }
-    } else {
-        Update-State 32 "WARN" "USB Drive not found"
-    }
-
-    # ==========================
     # CLEANUP
     # ==========================
     Update-Current "Cleaning up temporary files..."
     if (Test-Path $script:localInstalDir) {
-        # Usunie C:\Users\user\Desktop\INSTALKI
-        # Zostawi C:\Users\user\Desktop\arcabit-ZSBransk
         Remove-Item -Path $script:localInstalDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
