@@ -27,6 +27,7 @@ $items = @(
     @{ Id=20; Desc="Java (Auto-Copy & Set Env)" }
     @{ Id=27; Desc="ZSBrańsk (Auto-Copy arcabit to Desktop)" }
     @{ Id=16; Desc="Firefox / Chrome (Force Install)" }
+    @{ Id=28; Desc="Adobe Reader (Force Install)" }
     @{ Id=18; Desc="Adobe AIR (Force Install)" }
     @{ Id=19; Desc="7-Zip (Force Install)" }
 )
@@ -419,6 +420,15 @@ $workerScriptBlock = {
     
     $bStatus = if ($hasBrowserIssues) { "WARN" } else { "ACTION" }
     Update-State 16 $bStatus ($browserResults -join " | ")
+
+    Update-Current "Force installing Adobe Reader..."
+    if (Ensure-InstallFiles) {
+        $readerExe = Get-ChildItem -Path $script:localInstalDir -Filter "Reader_pl_install*.exe" | Select-Object -First 1
+        if ($readerExe) {
+            Start-Process $readerExe.FullName -ArgumentList "/sAll /rs /msi EULA_ACCEPT=YES /qn" -Wait -NoNewWindow
+            Update-State 28 "ACTION" "Installed unconditionally"
+        } else { Update-State 28 "ERROR" "Installer missing (Reader_pl_install)" }
+    } else { Update-State 28 "WARN" "Awaiting USB for Adobe Reader" }
 
     Update-Current "Force installing Adobe AIR..."
     if (Ensure-InstallFiles) {
